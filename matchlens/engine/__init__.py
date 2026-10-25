@@ -10,6 +10,7 @@ from matchlens.engine.dimension_scorers import (
     score_communication,
     score_shared_interests,
 )
+from matchlens.engine.directional import calculate_directional_score
 
 __all__ = [
     "check_mutual_eligibility",
@@ -18,4 +19,5 @@ __all__ = [
     "score_lifestyle",
     "score_communication",
     "score_shared_interests",
+    "calculate_directional_score",
 ]
