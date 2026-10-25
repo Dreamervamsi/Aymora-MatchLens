@@ -108,7 +108,35 @@ python examples/interview_demo.py
 
 ---
 
-## Core Scoring Formulas & Rules
+## Phase 6 — FastAPI Backend API
+
+MatchLens Phase 6 provides a RESTful FastAPI backend server under `/api/v1` connecting the onboarding interview, scenario assessment, profile management, and reciprocal matching engine:
+
+### 1. Running the API Server
+```bash
+uvicorn matchlens.api.app:app --reload --port 8000
+```
+
+### 2. Interactive API Documentation (Swagger / OpenAPI)
+Once running, explore and test endpoints directly via Swagger UI:
+- **Swagger Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc Documentation**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **OpenAPI JSON Spec**: [http://localhost:8000/api/v1/openapi.json](http://localhost:8000/api/v1/openapi.json)
+
+### 3. Key Endpoint Groups (`/api/v1`)
+- **`GET /api/v1/health`**: Health check and API version.
+- **`POST /api/v1/interview/start`**: Start conversational onboarding interview session.
+- **`POST /api/v1/interview/{session_id}/turn`**: Submit conversational user input.
+- **`GET /api/v1/interview/{session_id}`**: Retrieve ongoing interview state.
+- **`POST /api/v1/interview/{session_id}/confirm`**: Confirm draft profile and store in repository.
+- **`POST /api/v1/assessment/start`**: Start scenario-based relationship assessment.
+- **`POST /api/v1/assessment/{assessment_id}/turn`**: Submit scenario self behavior or partner expectation.
+- **`POST /api/v1/assessment/{assessment_id}/correct`**: Correct a scenario choice.
+- **`GET /api/v1/assessment/{assessment_id}`**: Retrieve assessment progress and draft choices.
+- **`POST /api/v1/assessment/{assessment_id}/confirm`**: Finalize assessment and attach canonical responses to user profile.
+- **`GET /api/v1/profiles/{user_id}`**: Retrieve confirmed user profile.
+- **`GET /api/v1/matches/{user_id}?top_k=3`**: Calculate top 3 reciprocal matches for a confirmed profile.
+
 
 ### 1. Directional Weighted Compatibility
 $$S(A \rightarrow B) = \frac{\sum_{i \in \text{active}} w_{A,i} \cdot s_i(A,B)}{\sum_{i \in \text{active}} w_{A,i}}$$
