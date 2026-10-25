@@ -54,7 +54,14 @@ class GroqProfileExtractor:
         client: Optional[GroqClient] = None,
     ):
         self.settings = settings or GroqSettings()
-        self.client = client or GroqClient(settings=self.settings)
+        if client is not None:
+            self.client = client
+        else:
+            try:
+                self.client = GroqClient(settings=self.settings)
+            except Exception as e:
+                logger.info(f"GroqClient not initialized in GroqProfileExtractor ({e}).")
+                self.client = None
 
     async def extract_from_text(
         self,
@@ -71,6 +78,9 @@ class GroqProfileExtractor:
         Returns:
             ExtractedProfileUpdate object containing validated structured extraction data.
         """
+        if self.client is None:
+            raise ValueError("Groq client is uninitialized (missing API key).")
+
         prompt = f"User Natural Language Input:\n\"{user_input}\""
         if context_prompt:
             prompt = f"Context / Question Asked:\n{context_prompt}\n\n{prompt}"
