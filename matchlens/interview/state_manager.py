@@ -1,5 +1,6 @@
 import logging
 import uuid
+from copy import deepcopy
 from typing import Dict, Optional
 from matchlens.interview.models import InterviewState
 from matchlens.models.profile import UserProfile
@@ -11,6 +12,7 @@ class InterviewStateManager:
     """
     In-memory registry for InterviewState objects.
     Provides session creation, retrieval, updates, and JSON serialization/reconstruction capabilities.
+    Returns defensive copies for public reads and validates state on save.
     """
 
     def __init__(self):
@@ -35,20 +37,22 @@ class InterviewStateManager:
             user_id=user_id,
             draft_profile=initial_profile,
         )
-        self._sessions[sid] = state
-        return state
+        self.save_session(state)
+        return self.get_session(sid)  # type: ignore
 
     def get_session(self, session_id: str) -> Optional[InterviewState]:
         """
-        Retrieves interview state by session ID.
+        Retrieves interview state by session ID as a defensive copy.
         """
-        return self._sessions.get(session_id)
+        state = self._sessions.get(session_id)
+        return deepcopy(state) if state else None
 
     def save_session(self, state: InterviewState) -> None:
         """
-        Saves/updates interview state in registry.
+        Saves/updates interview state in registry after validation.
         """
-        self._sessions[state.session_id] = state
+        validated_state = InterviewState.model_validate(state.model_dump())
+        self._sessions[state.session_id] = deepcopy(validated_state)
 
     def delete_session(self, session_id: str) -> bool:
         """
@@ -74,4 +78,4 @@ class InterviewStateManager:
         """
         state = InterviewState.model_validate_json(json_data)
         self.save_session(state)
-        return state
+        return self.get_session(state.session_id)  # type: ignore

@@ -7,6 +7,9 @@ from matchlens.assessment.models import (
     AssessmentState,
     AssessmentTurnResult,
 )
+from matchlens.assessment.state_manager import AssessmentStateManager
+from matchlens.assessment.orchestrator import ScenarioAssessmentOrchestrator
+from matchlens.assessment.integration import attach_scenario_responses
 
 __all__ = [
     "AssessmentStatus",
@@ -16,4 +19,7 @@ __all__ = [
     "AssessmentProgress",
     "AssessmentState",
     "AssessmentTurnResult",
+    "AssessmentStateManager",
+    "ScenarioAssessmentOrchestrator",
+    "attach_scenario_responses",
 ]

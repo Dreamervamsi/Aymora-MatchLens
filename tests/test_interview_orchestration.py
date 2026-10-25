@@ -341,3 +341,98 @@ async def test_13_false_positive_finish_phrases_ignored(orchestrator, mock_extra
         user_message="I usually finish work around 5pm and then I like going for a run or reading."
     )
     assert res.interview_status == InterviewStatus.ACTIVE  # Not early finish!
+
+
+@pytest.mark.anyio
+async def test_14_rejection_with_explicit_correction_captured(orchestrator, mock_extractor):
+    """14. Test that explicit corrections provided during confirmation rejection are captured."""
+    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_014_corr")
+    
+    # 1. First turn returns a confirmation proposal for smoking="never"
+    mock_extractor.extract_from_text.return_value = mock_extraction_response(
+        confirmations=[{
+            "field_name": "smoking",
+            "target_category": "self_attributes",
+            "proposed_value": "never",
+            "confidence": 0.6,
+            "reasoning": "User mentioned health conscious",
+            "clarification_question": "Does that mean you never smoke?"
+        }]
+    )
+    await orchestrator.process_turn(session_id="sess_014_corr", user_message="I am health conscious.")
+
+    # 2. Second turn rejects the proposal with an explicit correction "No, I smoke socially."
+    mock_extractor.extract_from_text.return_value = mock_extraction_response(
+        self_attrs={"smoking": "socially"}
+    )
+    res = await orchestrator.process_turn(session_id="sess_014_corr", user_message="No, I actually smoke socially.")
+
+    profile = orchestrator.get_draft_profile("sess_014_corr")
+    assert profile.attributes.smoking == "socially"
+    assert "attributes.smoking" in res.newly_extracted_fields
+
+
+@pytest.mark.anyio
+async def test_15_unconfirmed_scenarios_not_merged_into_draft_profile(orchestrator, mock_extractor):
+    """15. Test that unconfirmed scenarios in ExtractedProfileUpdate are NOT merged into draft profile."""
+    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_015_scen")
+    
+    from matchlens.models.scenario import ScenarioResponse
+    scen_unconfirmed = ScenarioResponse(
+        scenario_id="conflict_resolution_01",
+        target_dimension="communication_preferences",
+        perspective="self_behavior",
+        normalized_preference="cool_down_first",
+    )
+    
+    mock_update = mock_extraction_response(self_attrs={"age": 25})
+    mock_update.scenarios = [scen_unconfirmed]
+    mock_extractor.extract_from_text.return_value = mock_update
+
+    await orchestrator.process_turn(session_id="sess_015_scen", user_message="I am 25 and I cool down first.")
+    profile = orchestrator.get_draft_profile("sess_015_scen")
+
+    # Profile scenarios must remain empty from general interview extraction
+    assert len(profile.scenarios) == 0
+
+
+@pytest.mark.anyio
+async def test_16_calculate_progress_reflects_actual_completeness_on_early_finish(orchestrator, mock_extractor):
+    """16. Test that progress percentage reflects actual completeness when early finish is requested."""
+    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_016_prog")
+    mock_extractor.extract_from_text.return_value = mock_extraction_response()
+
+    res = await orchestrator.process_turn(session_id="sess_016_prog", user_message="stop interview")
+    assert res.interview_status == InterviewStatus.READY_FOR_REVIEW
+    # Essential fields are missing, percentage must NOT be 100.0%
+    assert res.progress.percentage < 100.0
+    assert res.progress.essential_fields_satisfied is False
+
+
+@pytest.mark.anyio
+async def test_17_question_selector_exception_fallback(orchestrator, mock_extractor):
+    """17. Test that exceptions in question selector trigger deterministic question fallback."""
+    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_017_err")
+    mock_extractor.extract_from_text.return_value = mock_extraction_response(self_attrs={"age": 28})
+
+    orchestrator.question_selector.select_and_generate_question = AsyncMock(side_effect=RuntimeError("Selector error"))
+
+    res = await orchestrator.process_turn(session_id="sess_017_err", user_message="I am 28.")
+    assert res.assistant_message is not None
+    assert "Could you tell me a bit more about your" in res.assistant_message
+
+
+def test_18_state_manager_defensive_copies():
+    """18. Test that state manager returns defensive copies to prevent external mutation."""
+    from matchlens.interview.state_manager import InterviewStateManager
+    sm = InterviewStateManager()
+    state = sm.create_session(user_id="u18", session_id="sess_018")
+
+    # Mutate retrieved session externally
+    retrieved = sm.get_session("sess_018")
+    retrieved.turn_count = 999
+
+    # Internal state in manager must remain unaffected (0)
+    internal = sm.get_session("sess_018")
+    assert internal.turn_count == 0
+

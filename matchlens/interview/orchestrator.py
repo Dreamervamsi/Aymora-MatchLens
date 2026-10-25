@@ -144,6 +144,17 @@ class InterviewOrchestrator:
                 is_confirmation_turn = True
                 if resolved:
                     newly_extracted.extend(resolved)
+                if result_code == "rejected":
+                    # Extract explicit corrections provided in the rejection message (e.g. "No, I smoke socially")
+                    try:
+                        corr_update = await self.extractor.extract_from_text(
+                            user_input=cleaned_input,
+                            context_prompt=f"User rejected proposed value for '{msg}'. Extract any explicit correction or new value.",
+                        )
+                        corr_fields = self._merge_extracted_data(working_state, corr_update, ignore_confirmations=True)
+                        newly_extracted.extend(corr_fields)
+                    except Exception as e:
+                        logger.warning(f"Failed to extract explicit correction during rejection: {e}")
             elif result_code == "ambiguous":
                 # User gave ambiguous/qualified response to confirmation prompt
                 # Do NOT change profile, ask for explicit confirmation again
@@ -203,11 +214,16 @@ class InterviewOrchestrator:
             target_topic_missing = self._get_missing_fields_for_topic(working_state, working_state.current_topic)
             target_field = target_topic_missing[0] if target_topic_missing else None
             
-            q_id, assistant_question = await self._select_non_repeating_question(
-                state=working_state,
-                target_topic=working_state.current_topic,
-                missing_field_key=target_field,
-            )
+            try:
+                q_id, assistant_question = await self._select_non_repeating_question(
+                    state=working_state,
+                    target_topic=working_state.current_topic,
+                    missing_field_key=target_field,
+                )
+            except Exception as e:
+                logger.error(f"Question generation failed on topic '{working_state.current_topic.value}': {e}")
+                q_id = f"fallback.{working_state.current_topic.value}.q_{len(working_state.previously_asked_question_ids) + 1}"
+                assistant_question = f"Could you tell me a bit more about your {working_state.current_topic.value.replace('_', ' ')} preferences?"
 
         working_state.conversation_history.append(ChatMessage(role="assistant", content=assistant_question))
         if q_id not in working_state.previously_asked_question_ids:
@@ -296,7 +312,12 @@ class InterviewOrchestrator:
 
         return [], "ambiguous", f"Response '{user_input}' was ambiguous for confirmation"
 
-    def _merge_extracted_data(self, state: InterviewState, update: ExtractedProfileUpdate) -> List[str]:
+    def _merge_extracted_data(
+        self,
+        state: InterviewState,
+        update: ExtractedProfileUpdate,
+        ignore_confirmations: bool = False,
+    ) -> List[str]:
         newly_extracted = []
         p = state.draft_profile
 
@@ -315,15 +336,13 @@ class InterviewOrchestrator:
                 if self._safely_update_profile(p, "dealbreakers", field, val):
                     newly_extracted.append(f"dealbreakers.{field}")
 
-        for sc in update.scenarios:
-            if not any(s.scenario_id == sc.scenario_id for s in p.scenarios):
-                p.scenarios.append(sc)
-                newly_extracted.append(f"scenarios.{sc.scenario_id}")
+        # Note: Scenario extraction is restricted to Phase 5.3 scenario assessment workflow
 
-        for conf_prompt in update.confirmations_needed:
-            pending = PendingConfirmation.from_confirmation_prompt(conf_prompt)
-            if not any(pc.field_name == pending.field_name and pc.target_category == pending.target_category for pc in state.pending_confirmations):
-                state.pending_confirmations.append(pending)
+        if not ignore_confirmations:
+            for conf_prompt in update.confirmations_needed:
+                pending = PendingConfirmation.from_confirmation_prompt(conf_prompt)
+                if not any(pc.field_name == pending.field_name and pc.target_category == pending.target_category for pc in state.pending_confirmations):
+                    state.pending_confirmations.append(pending)
 
         return newly_extracted
 
@@ -463,12 +482,18 @@ class InterviewOrchestrator:
         current_idx = TOPIC_ORDER.index(state.current_topic) if state.current_topic in TOPIC_ORDER else 0
         completed_topics = TOPIC_ORDER[:current_idx]
         
-        pct = (current_idx / len(TOPIC_ORDER)) * 100.0
         missing_essential = self._get_missing_essential_fields(state)
         essential_satisfied = len(missing_essential) == 0
 
-        if state.status in (InterviewStatus.READY_FOR_REVIEW, InterviewStatus.COMPLETED):
+        if state.status == InterviewStatus.COMPLETED:
             pct = 100.0
+        elif state.status == InterviewStatus.READY_FOR_REVIEW:
+            if essential_satisfied and current_idx >= len(TOPIC_ORDER) - 1:
+                pct = 100.0
+            else:
+                pct = (current_idx / len(TOPIC_ORDER)) * 100.0
+        else:
+            pct = (current_idx / len(TOPIC_ORDER)) * 100.0
 
         return InterviewProgress(
             completed_topics=completed_topics,
