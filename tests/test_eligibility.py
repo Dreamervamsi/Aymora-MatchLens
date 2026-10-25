@@ -20,8 +20,8 @@ def test_fully_eligible_pair():
         expectations=PartnerPreferences(min_age=25, max_age=35, acceptable_genders=["man"], desired_intentions=["long_term"]),
     )
 
-    is_eligible, reasons = check_mutual_eligibility(user_a, user_b)
-    assert is_eligible is True
+    status, reasons = check_mutual_eligibility(user_a, user_b)
+    assert status == "eligible"
     assert len(reasons) == 0
 
 
@@ -32,8 +32,8 @@ def test_blocked_user_ineligibility():
     )
     user_b = UserProfile(user_id="user_b")
 
-    is_eligible, reasons = check_mutual_eligibility(user_a, user_b)
-    assert is_eligible is False
+    status, reasons = check_mutual_eligibility(user_a, user_b)
+    assert status == "ineligible"
     assert any("explicitly blocked" in r for r in reasons)
 
 
@@ -48,8 +48,8 @@ def test_age_out_of_range_ineligibility():
         attributes=UserAttributes(age=22),
     )
 
-    is_eligible, reasons = check_mutual_eligibility(user_a, user_b)
-    assert is_eligible is False
+    status, reasons = check_mutual_eligibility(user_a, user_b)
+    assert status == "ineligible"
     assert any("Candidate's age (22) is below Evaluator's minimum age (30)" in r for r in reasons)
 
 
@@ -65,8 +65,8 @@ def test_gender_mismatch_ineligibility():
         expectations=PartnerPreferences(acceptable_genders=["man"]),
     )
 
-    is_eligible, reasons = check_mutual_eligibility(user_a, user_b)
-    assert is_eligible is False
+    status, reasons = check_mutual_eligibility(user_a, user_b)
+    assert status == "ineligible"
     assert any("acceptable genders" in r for r in reasons)
 
 
@@ -81,6 +81,6 @@ def test_smoking_dealbreaker_ineligibility():
         attributes=UserAttributes(smoking="regularly"),
     )
 
-    is_eligible, reasons = check_mutual_eligibility(user_a, user_b)
-    assert is_eligible is False
+    status, reasons = check_mutual_eligibility(user_a, user_b)
+    assert status == "ineligible"
     assert any("smoking dealbreaker" in r for r in reasons)

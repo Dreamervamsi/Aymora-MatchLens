@@ -90,7 +90,7 @@ def test_communication_with_scenarios():
     score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
     assert score == 100.0
     assert len(scenario_ev) == 1
-    assert "aligns with expectation" in scenario_ev[0]
+    assert "ALIGNS" in scenario_ev[0]
 
 
 def test_missing_data_returns_none():
