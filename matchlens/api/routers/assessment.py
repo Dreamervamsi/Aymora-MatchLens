@@ -89,6 +89,8 @@ async def submit_assessment_turn(
             progress=turn_result.progress,
             summary_data=turn_result.summary_data,
         )
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND if "unknown assessment" in str(ve).lower() else status.HTTP_400_BAD_REQUEST,
@@ -127,6 +129,8 @@ async def correct_assessment_response(
             progress=turn_result.progress,
             summary_data=turn_result.summary_data,
         )
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND if "unknown assessment" in str(ve).lower() else status.HTTP_400_BAD_REQUEST,
@@ -144,6 +148,13 @@ async def get_assessment_state(
     """
     try:
         state = orchestrator.get_assessment_state(assessment_id)
+        summary_dict = {
+            sid: {
+                "self_response": state.collected_responses[sid].self_response if sid in state.collected_responses else None,
+                "partner_expectation": state.collected_responses[sid].partner_expectation if sid in state.collected_responses else None,
+            }
+            for sid in state.selected_scenario_ids
+        }
         return AssessmentStateResponse(
             assessment_id=state.assessment_id,
             user_id=state.user_id,
@@ -151,7 +162,10 @@ async def get_assessment_state(
             current_stage=state.current_stage,
             selected_scenario_ids=state.selected_scenario_ids,
             progress=state.progress,
+            summary_data=summary_dict,
         )
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
 
@@ -164,6 +178,7 @@ async def confirm_assessment(
 ) -> UserProfile:
     """
     Confirms assessment responses and attaches canonical ScenarioResponse objects to the user profile.
+    Ensures atomic preparation and validation prior to committing state changes.
     """
     try:
         state = orchestrator.get_assessment_state(assessment_id)
@@ -174,22 +189,24 @@ async def confirm_assessment(
                 detail=f"User '{state.user_id}' does not have a confirmed profile in the repository.",
             )
 
-        # Confirm assessment status
-        orchestrator.confirm_assessment(assessment_id)
-
-        # Retrieve completed canonical scenario responses
+        # Retrieve completed canonical scenario responses first
         scenario_responses = orchestrator.get_completed_responses(assessment_id)
 
-        # Attach to user profile using integration utility
+        # Atomic preparation: validate and attach to profile before committing assessment state change
         updated_profile = attach_scenario_responses(
             profile=user_profile,
             new_responses=scenario_responses,
             replace_existing=True,
         )
 
+        # Confirm assessment state in orchestrator
+        orchestrator.confirm_assessment(assessment_id)
+
         # Save updated profile to repository
         saved = repository.update_profile(updated_profile)
         return saved
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
     except Exception as e:

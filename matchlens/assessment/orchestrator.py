@@ -289,11 +289,21 @@ class ScenarioAssessmentOrchestrator:
     def confirm_assessment(self, assessment_id: str) -> AssessmentTurnResult:
         """
         Explicitly confirms and completes the assessment.
-        Requires all scenarios to have complete self and partner responses.
+        Requires assessment status to be READY_FOR_REVIEW and all scenarios to have complete responses.
         """
         state = self.state_manager.get_session(assessment_id)
         if not state:
             raise ValueError(f"Unknown assessment ID '{assessment_id}'.")
+
+        # Fix P2: Require status to be READY_FOR_REVIEW
+        if state.status == AssessmentStatus.COMPLETED:
+            raise ValueError(f"Assessment '{assessment_id}' is already completed and confirmed.")
+
+        if state.status != AssessmentStatus.READY_FOR_REVIEW:
+            raise ValueError(
+                f"Cannot confirm assessment in status '{state.status.value}'. "
+                "Assessment must be in 'ready_for_review' state before confirming."
+            )
 
         # Verify all scenarios are complete
         incomplete = [

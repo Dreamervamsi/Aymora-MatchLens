@@ -114,17 +114,27 @@ async def confirm_interview_profile(
 ) -> UserProfile:
     """
     Confirms and finalizes the draft interview profile, saving it to the profile repository.
+    Preserves existing confirmed scenario assessments if an existing profile is being reconfirmed/updated.
     """
     state = orchestrator.state_manager.get_session(session_id)
     if not state:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Interview session '{session_id}' not found.")
 
-    # Check for duplicate confirmation attempt
     existing_profile = repository.get_profile(state.user_id)
 
     try:
         confirmed_profile = orchestrator.confirm_draft_profile(session_id)
-        # Prevent accidental overwrite unless intentional or save newly confirmed profile
+
+        # Fix P1: Preserve existing confirmed scenario responses if user already had a stored profile
+        if existing_profile and existing_profile.scenarios:
+            # Merge existing scenario responses into confirmed draft profile
+            existing_scenarios = existing_profile.scenarios
+            scenarios_map = {s.scenario_id: s for s in existing_scenarios}
+            # Add any draft scenarios
+            for s in confirmed_profile.scenarios:
+                scenarios_map[s.scenario_id] = s
+            confirmed_profile.scenarios = list(scenarios_map.values())
+
         saved = repository.save_profile(confirmed_profile, overwrite=True if existing_profile else False)
         return saved
     except ValueError as ve:

@@ -51,11 +51,9 @@ async def get_top_matches(
             top_k=top_k,
         )
 
-        matches_json = [m.model_dump() for m in top_matches]
-
         return MatchRecommendationResponse(
             requesting_user_id=user_id,
-            top_matches=matches_json,
+            top_matches=top_matches,
             ranking_metadata=metadata.to_dict(),
         )
     except Exception as e:

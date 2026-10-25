@@ -83,6 +83,9 @@ class AssessmentTurnResponse(BaseModel):
     summary_data: Optional[Dict[str, Dict[str, Optional[str]]]] = None
 
 
+from matchlens.models.scoring import MatchResult
+
+
 class AssessmentStateResponse(BaseModel):
     assessment_id: str
     user_id: str
@@ -90,11 +93,12 @@ class AssessmentStateResponse(BaseModel):
     current_stage: AssessmentStage
     selected_scenario_ids: List[str]
     progress: AssessmentProgress
+    summary_data: Optional[Dict[str, Dict[str, Optional[str]]]] = None
 
 
 # --- Matching Schemas ---
 
 class MatchRecommendationResponse(BaseModel):
     requesting_user_id: str
-    top_matches: List[Any]
+    top_matches: List[MatchResult]
     ranking_metadata: Dict[str, int]
