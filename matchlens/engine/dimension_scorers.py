@@ -1,6 +1,12 @@
-from typing import List, Optional, Tuple, Set
+"""
+Pure deterministic dimension scoring and scenario alignment functions for MatchLens.
+Calculates score [0.0 - 100.0], shared factors, gap factors, and scenario evidence.
+"""
+
+from typing import List, Optional, Tuple, Set, Dict
 from matchlens.models.profile import UserProfile
 from matchlens.models.scenario import ScenarioResponse
+from matchlens.engine.eligibility import normalize_str, normalize_str_list
 from matchlens.config import (
     DIMENSION_CORE_VALUES,
     DIMENSION_RELATIONSHIP_INTENTIONS,
@@ -13,30 +19,35 @@ from matchlens.config import (
 def score_core_values(
     evaluator: UserProfile, candidate: UserProfile
 ) -> Tuple[Optional[float], List[str], List[str], List[str]]:
-    desired = evaluator.expectations.desired_values
-    cand_values = candidate.attributes.core_values
+    """
+    Evaluates core values compatibility.
+    Evaluator desired_values vs Candidate core_values.
+    """
+    desired = normalize_str_list(evaluator.expectations.desired_values)
+    cand_values = normalize_str_list(candidate.attributes.core_values)
 
-    if desired is None or cand_values is None:
-        return None, [], [], []
+    attr_score = None
+    shared_factors = []
+    gap_factors = []
 
-    desired_set = {v.lower().strip() for v in desired}
-    cand_set = {v.lower().strip() for v in cand_values}
+    if desired and cand_values:
+        desired_set = set(desired)
+        cand_set = set(cand_values)
 
-    if not desired_set:
-        return None, [], [], []
+        matched = desired_set.intersection(cand_set)
+        missing = desired_set.difference(cand_set)
 
-    matched = desired_set.intersection(cand_set)
-    missing = desired_set.difference(cand_set)
+        attr_score = (len(matched) / len(desired_set)) * 100.0
 
-    score = (len(matched) / len(desired_set)) * 100.0
+        shared_factors = [f"[core_values] Shared core value: '{m}'" for m in sorted(matched)]
+        gap_factors = [f"[core_values] Desired value '{m}' missing in candidate profile" for m in sorted(missing)]
 
-    shared_factors = [f"Shared core value: '{m}'" for m in sorted(matched)]
-    gap_factors = [f"Desired value '{m}' missing in candidate" for m in sorted(missing)]
+    scenario_score, scenario_evidence = _evaluate_scenario_dimension(
+        evaluator, candidate, DIMENSION_CORE_VALUES
+    )
 
-    # Scenario evidence integration for core_values
-    scenario_evidence = _evaluate_scenario_alignment(evaluator, candidate, DIMENSION_CORE_VALUES)
-
-    return round(score, 2), shared_factors, gap_factors, scenario_evidence
+    final_score = _blend_dimension_scores(attr_score, scenario_score)
+    return final_score, shared_factors, gap_factors, scenario_evidence
 
 
 def score_relationship_intentions(
@@ -46,30 +57,27 @@ def score_relationship_intentions(
     Evaluates relationship intentions compatibility.
     Candidate relationship_intent vs Evaluator desired_intentions.
     """
-    desired_intentions = evaluator.expectations.desired_intentions
-    cand_intent = candidate.attributes.relationship_intent
+    desired_intentions = normalize_str_list(evaluator.expectations.desired_intentions)
+    cand_intent = normalize_str(candidate.attributes.relationship_intent)
 
-    if desired_intentions is None or cand_intent is None:
-        return None, [], [], []
+    attr_score = None
+    shared = []
+    gaps = []
 
-    desired_set = {i.lower().strip() for i in desired_intentions}
-    c_intent_norm = cand_intent.lower().strip()
+    if desired_intentions and cand_intent:
+        if cand_intent in desired_intentions:
+            attr_score = 100.0
+            shared = [f"[relationship_intentions] Candidate's intent '{candidate.attributes.relationship_intent}' matches evaluator's expectations"]
+        else:
+            attr_score = 0.0
+            gaps = [f"[relationship_intentions] Candidate's intent '{candidate.attributes.relationship_intent}' differs from evaluator's expectations {evaluator.expectations.desired_intentions}"]
 
-    if not desired_set:
-        return None, [], [], []
+    scenario_score, scenario_evidence = _evaluate_scenario_dimension(
+        evaluator, candidate, DIMENSION_RELATIONSHIP_INTENTIONS
+    )
 
-    if c_intent_norm in desired_set:
-        score = 100.0
-        shared = [f"Candidate's intent '{cand_intent}' matches requested intentions"]
-        gaps = []
-    else:
-        score = 0.0
-        shared = []
-        gaps = [f"Candidate's intent '{cand_intent}' differs from desired intentions {desired_intentions}"]
-
-    scenario_evidence = _evaluate_scenario_alignment(evaluator, candidate, DIMENSION_RELATIONSHIP_INTENTIONS)
-
-    return round(score, 2), shared, gaps, scenario_evidence
+    final_score = _blend_dimension_scores(attr_score, scenario_score)
+    return final_score, shared, gaps, scenario_evidence
 
 
 def score_lifestyle(
@@ -86,55 +94,54 @@ def score_lifestyle(
     gap_factors = []
 
     # 1. Smoking
-    if exp.acceptable_smoking is not None and len(exp.acceptable_smoking) > 0 and c_attr.smoking is not None:
-        acc_smoking = {s.lower() for s in exp.acceptable_smoking}
-        if c_attr.smoking.lower() in acc_smoking:
+    norm_acc_smoking = normalize_str_list(exp.acceptable_smoking)
+    norm_c_smoking = normalize_str(c_attr.smoking)
+    if norm_acc_smoking and norm_c_smoking:
+        if norm_c_smoking in norm_acc_smoking:
             sub_scores.append(100.0)
-            shared_factors.append(f"Acceptable smoking habit: '{c_attr.smoking}'")
+            shared_factors.append(f"[lifestyle_compatibility] Acceptable smoking habit: '{c_attr.smoking}'")
         else:
             sub_scores.append(0.0)
-            gap_factors.append(f"Smoking habit '{c_attr.smoking}' not in acceptable choices {exp.acceptable_smoking}")
+            gap_factors.append(f"[lifestyle_compatibility] Smoking habit '{c_attr.smoking}' not in acceptable options {exp.acceptable_smoking}")
 
     # 2. Drinking
-    if exp.acceptable_drinking is not None and len(exp.acceptable_drinking) > 0 and c_attr.drinking is not None:
-        acc_drinking = {d.lower() for d in exp.acceptable_drinking}
-        if c_attr.drinking.lower() in acc_drinking:
+    norm_acc_drinking = normalize_str_list(exp.acceptable_drinking)
+    norm_c_drinking = normalize_str(c_attr.drinking)
+    if norm_acc_drinking and norm_c_drinking:
+        if norm_c_drinking in norm_acc_drinking:
             sub_scores.append(100.0)
-            shared_factors.append(f"Acceptable drinking habit: '{c_attr.drinking}'")
+            shared_factors.append(f"[lifestyle_compatibility] Acceptable drinking habit: '{c_attr.drinking}'")
         else:
             sub_scores.append(0.0)
-            gap_factors.append(f"Drinking habit '{c_attr.drinking}' not in acceptable choices {exp.acceptable_drinking}")
+            gap_factors.append(f"[lifestyle_compatibility] Drinking habit '{c_attr.drinking}' not in acceptable options {exp.acceptable_drinking}")
 
     # 3. Children stance
-    if exp.desired_wants_children is not None and len(exp.desired_wants_children) > 0 and c_attr.wants_children is not None:
-        acc_kids = {k.lower() for k in exp.desired_wants_children}
-        if c_attr.wants_children.lower() in acc_kids:
+    norm_acc_children = normalize_str_list(exp.desired_wants_children)
+    norm_c_children = normalize_str(c_attr.wants_children)
+    if norm_acc_children and norm_c_children:
+        if norm_c_children in norm_acc_children:
             sub_scores.append(100.0)
-            shared_factors.append(f"Aligned position on children: '{c_attr.wants_children}'")
+            shared_factors.append(f"[lifestyle_compatibility] Aligned position on children: '{c_attr.wants_children}'")
         else:
             sub_scores.append(0.0)
-            gap_factors.append(f"Children stance '{c_attr.wants_children}' not in desired positions {exp.desired_wants_children}")
+            gap_factors.append(f"[lifestyle_compatibility] Stance on children '{c_attr.wants_children}' not in preferred options {exp.desired_wants_children}")
 
-    scenario_evidence = _evaluate_scenario_alignment(evaluator, candidate, DIMENSION_LIFESTYLE)
+    attr_score = sum(sub_scores) / len(sub_scores) if sub_scores else None
 
-    if not sub_scores and not scenario_evidence:
-        return None, [], [], []
+    scenario_score, scenario_evidence = _evaluate_scenario_dimension(
+        evaluator, candidate, DIMENSION_LIFESTYLE
+    )
 
-    base_score = sum(sub_scores) / len(sub_scores) if sub_scores else 50.0
-
-    # Adjust base score with scenario score if available
-    scenario_score = _calculate_scenario_score(evaluator, candidate, DIMENSION_LIFESTYLE)
-    if scenario_score is not None:
-        final_score = (base_score * 0.6) + (scenario_score * 0.4)
-    else:
-        final_score = base_score
-
-    return round(final_score, 2), shared_factors, gap_factors, scenario_evidence
+    final_score = _blend_dimension_scores(attr_score, scenario_score, attr_weight=0.6, scenario_weight=0.4)
+    return final_score, shared_factors, gap_factors, scenario_evidence
 
 
 def score_communication(
     evaluator: UserProfile, candidate: UserProfile
 ) -> Tuple[Optional[float], List[str], List[str], List[str]]:
+    """
+    Evaluates communication preferences & conflict resolution.
+    """
     exp = evaluator.expectations
     c_attr = candidate.attributes
 
@@ -143,125 +150,160 @@ def score_communication(
     gap_factors = []
 
     # 1. Communication style
-    if exp.desired_communication_styles is not None and len(exp.desired_communication_styles) > 0 and c_attr.communication_style is not None:
-        desired_styles = {s.lower() for s in exp.desired_communication_styles}
-        if c_attr.communication_style.lower() in desired_styles:
+    norm_desired_styles = normalize_str_list(exp.desired_communication_styles)
+    norm_c_style = normalize_str(c_attr.communication_style)
+    if norm_desired_styles and norm_c_style:
+        if norm_c_style in norm_desired_styles:
             sub_scores.append(100.0)
-            shared_factors.append(f"Preferred communication style: '{c_attr.communication_style}'")
+            shared_factors.append(f"[communication_preferences] Preferred communication style: '{c_attr.communication_style}'")
         else:
             sub_scores.append(25.0)
-            gap_factors.append(f"Communication style '{c_attr.communication_style}' differs from preferred styles")
+            gap_factors.append(f"[communication_preferences] Communication style '{c_attr.communication_style}' differs from preferred styles {exp.desired_communication_styles}")
 
     # 2. Conflict resolution
-    if exp.desired_conflict_resolutions is not None and len(exp.desired_conflict_resolutions) > 0 and c_attr.conflict_resolution is not None:
-        desired_conflicts = {c.lower() for c in exp.desired_conflict_resolutions}
-        if c_attr.conflict_resolution.lower() in desired_conflicts:
+    norm_desired_conflicts = normalize_str_list(exp.desired_conflict_resolutions)
+    norm_c_conflict = normalize_str(c_attr.conflict_resolution)
+    if norm_desired_conflicts and norm_c_conflict:
+        if norm_c_conflict in norm_desired_conflicts:
             sub_scores.append(100.0)
-            shared_factors.append(f"Aligned conflict resolution style: '{c_attr.conflict_resolution}'")
+            shared_factors.append(f"[communication_preferences] Aligned conflict resolution style: '{c_attr.conflict_resolution}'")
         else:
             sub_scores.append(25.0)
-            gap_factors.append(f"Conflict resolution style '{c_attr.conflict_resolution}' differs from preferred styles")
+            gap_factors.append(f"[communication_preferences] Conflict resolution style '{c_attr.conflict_resolution}' differs from preferred styles {exp.desired_conflict_resolutions}")
 
-    scenario_evidence = _evaluate_scenario_alignment(evaluator, candidate, DIMENSION_COMMUNICATION)
+    attr_score = sum(sub_scores) / len(sub_scores) if sub_scores else None
 
-    if not sub_scores and not scenario_evidence:
-        return None, [], [], []
+    scenario_score, scenario_evidence = _evaluate_scenario_dimension(
+        evaluator, candidate, DIMENSION_COMMUNICATION
+    )
 
-    base_score = sum(sub_scores) / len(sub_scores) if sub_scores else 50.0
-
-    scenario_score = _calculate_scenario_score(evaluator, candidate, DIMENSION_COMMUNICATION)
-    if scenario_score is not None:
-        final_score = (base_score * 0.5) + (scenario_score * 0.5)
-    else:
-        final_score = base_score
-
-    return round(final_score, 2), shared_factors, gap_factors, scenario_evidence
+    final_score = _blend_dimension_scores(attr_score, scenario_score, attr_weight=0.5, scenario_weight=0.5)
+    return final_score, shared_factors, gap_factors, scenario_evidence
 
 
 def score_shared_interests(
     evaluator: UserProfile, candidate: UserProfile
 ) -> Tuple[Optional[float], List[str], List[str], List[str]]:
-    eval_interests = evaluator.attributes.interests
-    cand_interests = candidate.attributes.interests
+    """
+    Evaluates shared interests using Jaccard similarity.
+    """
+    eval_interests = normalize_str_list(evaluator.attributes.interests)
+    cand_interests = normalize_str_list(candidate.attributes.interests)
 
-    if eval_interests is None or cand_interests is None:
-        return None, [], [], []
-
-    e_set = {i.lower().strip() for i in eval_interests}
-    c_set = {i.lower().strip() for i in cand_interests}
-
-    if not e_set or not c_set:
-        return None, [], [], []
-
-    intersection = e_set.intersection(c_set)
-    union = e_set.union(c_set)
-
-    jaccard_score = (len(intersection) / len(union)) * 100.0
-
-    shared_factors = [f"Shared interest: '{i}'" for i in sorted(intersection)]
+    attr_score = None
+    shared_factors = []
     gap_factors = []
 
-    scenario_evidence = _evaluate_scenario_alignment(evaluator, candidate, DIMENSION_INTERESTS)
+    if eval_interests and cand_interests:
+        e_set = set(eval_interests)
+        c_set = set(cand_interests)
 
-    return round(jaccard_score, 2), shared_factors, gap_factors, scenario_evidence
+        intersection = e_set.intersection(c_set)
+        union = e_set.union(c_set)
 
+        if union:
+            attr_score = (len(intersection) / len(union)) * 100.0
+            shared_factors = [f"[shared_interests] Shared interest: '{i}'" for i in sorted(intersection)]
 
-def _evaluate_scenario_alignment(
-    evaluator: UserProfile, candidate: UserProfile, target_dimension: str
-) -> List[str]:
-    evidence = []
-    eval_scenarios = [s for s in evaluator.scenarios if s.target_dimension == target_dimension]
-    cand_scenarios = [s for s in candidate.scenarios if s.target_dimension == target_dimension]
+    scenario_score, scenario_evidence = _evaluate_scenario_dimension(
+        evaluator, candidate, DIMENSION_INTERESTS
+    )
 
-    cand_scen_map = {s.scenario_id: s for s in cand_scenarios}
-
-    for e_scen in eval_scenarios:
-        if e_scen.scenario_id in cand_scen_map:
-            c_scen = cand_scen_map[e_scen.scenario_id]
-
-            # Compare expectation vs behavior
-            expected = e_scen.expected_partner_preference or e_scen.normalized_preference
-            actual = c_scen.normalized_preference
-
-            if expected == actual:
-                evidence.append(
-                    f"Scenario '{e_scen.scenario_id}' match: Candidate response '{actual}' aligns with expectation."
-                )
-            else:
-                evidence.append(
-                    f"Scenario '{e_scen.scenario_id}' divergence: Candidate response '{actual}' vs expected '{expected}'."
-                )
-
-    return evidence
+    final_score = _blend_dimension_scores(attr_score, scenario_score)
+    return final_score, shared_factors, gap_factors, scenario_evidence
 
 
-def _calculate_scenario_score(
-    evaluator: UserProfile, candidate: UserProfile, target_dimension: str
+def _blend_dimension_scores(
+    attr_score: Optional[float],
+    scenario_score: Optional[float],
+    attr_weight: float = 0.5,
+    scenario_weight: float = 0.5,
 ) -> Optional[float]:
-    eval_scenarios = [s for s in evaluator.scenarios if s.target_dimension == target_dimension]
-    cand_scenarios = [s for s in candidate.scenarios if s.target_dimension == target_dimension]
+    """
+    Blends attribute score and scenario score based on availability.
+    - When only scenario score exists -> return scenario_score
+    - When only attribute score exists -> return attr_score
+    - When both exist -> return weighted average
+    - When neither exists -> return None
+    """
+    if attr_score is not None and scenario_score is not None:
+        blended = (attr_score * attr_weight) + (scenario_score * scenario_weight)
+        return round(blended, 2)
+    elif attr_score is not None:
+        return round(attr_score, 2)
+    elif scenario_score is not None:
+        return round(scenario_score, 2)
+    else:
+        return None
+
+
+def _evaluate_scenario_dimension(
+    evaluator: UserProfile, candidate: UserProfile, target_dimension: str
+) -> Tuple[Optional[float], List[str]]:
+    """
+    Evaluates scenario-based compatibility for target dimension with scenario integrity and importance weighting.
+
+    Semantics:
+    - Directional comparison checks if Candidate's self-reported behavior (`normalized_preference`)
+      matches Evaluator's explicitly stated expectation for partner (`expected_partner_preference`).
+    - If Evaluator has no explicitly stated `expected_partner_preference` for that scenario, no comparison is made.
+    - Scenarios with importance == 0.0 are ignored.
+    - Scenarios with mismatched target_dimension definition are ignored.
+    """
+    eval_scenarios = [
+        s for s in evaluator.scenarios
+        if s.target_dimension == target_dimension and s.importance > 0.0
+    ]
+    cand_scenarios = [
+        s for s in candidate.scenarios
+        if s.target_dimension == target_dimension and s.importance > 0.0
+    ]
 
     if not eval_scenarios or not cand_scenarios:
-        return None
+        return None, []
 
     cand_scen_map = {s.scenario_id: s for s in cand_scenarios}
 
     total_weight = 0.0
     weighted_score = 0.0
+    evidence_lines: List[str] = []
 
     for e_scen in eval_scenarios:
         if e_scen.scenario_id in cand_scen_map:
             c_scen = cand_scen_map[e_scen.scenario_id]
-            expected = e_scen.expected_partner_preference or e_scen.normalized_preference
-            actual = c_scen.normalized_preference
+
+            # Verify scenario definition integrity (must share target dimension)
+            if c_scen.target_dimension != e_scen.target_dimension:
+                continue
+
+            # Explicit expectation check only - NO fallback assumption
+            expected_partner_pref = normalize_str(e_scen.expected_partner_preference)
+            actual_cand_behavior = normalize_str(c_scen.normalized_preference)
+
+            if expected_partner_pref is None:
+                # Evaluator did not state an explicit partner expectation for this scenario
+                continue
 
             w = e_scen.importance
-            match_score = 100.0 if expected == actual else 0.0
+            if actual_cand_behavior == expected_partner_pref:
+                match_score = 100.0
+                outcome_text = "ALIGNS"
+            else:
+                match_score = 0.0
+                outcome_text = "DIVERGES"
 
             weighted_score += match_score * w
             total_weight += w
 
-    if total_weight <= 0:
-        return None
+            raw_cand_evidence = f" (raw: '{c_scen.raw_answer}')" if c_scen.raw_answer else ""
+            evidence_lines.append(
+                f"[{target_dimension}] Scenario '{e_scen.scenario_id}' {outcome_text}: "
+                f"Candidate behavior '{c_scen.normalized_preference}'{raw_cand_evidence} "
+                f"vs Evaluator expected '{e_scen.expected_partner_preference}' (importance: {w})."
+            )
 
-    return weighted_score / total_weight
+    if total_weight <= 0.0:
+        return None, []
+
+    final_scenario_score = weighted_score / total_weight
+    return round(final_scenario_score, 2), evidence_lines
