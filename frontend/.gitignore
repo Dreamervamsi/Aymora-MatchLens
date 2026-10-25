@@ -1,0 +1,14 @@
+# Logs
+node_modules
+.ds_store
+dist
+dist-ssr
+*.local
+
+# Environment
+.env
+.env.production
+
+# IDE
+.vscode
+.idea
