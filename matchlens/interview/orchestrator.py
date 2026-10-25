@@ -22,15 +22,17 @@ from matchlens.models.profile import UserProfile, UserAttributes, PartnerPrefere
 
 logger = logging.getLogger(__name__)
 
-EARLY_FINISH_TRIGGERS = [
-    "finish",
-    "stop",
-    "done",
-    "skip",
-    "wrap up",
-    "that's all",
-    "thats all",
-    "end interview",
+EXPLICIT_EARLY_FINISH_COMMANDS = {
+    "/finish", "/stop", "/done", "/skip",
+    "finish", "stop", "done", "skip", "wrap up",
+    "skip rest", "that's all", "thats all", "end interview"
+}
+
+EARLY_FINISH_PATTERNS = [
+    r"^\s*/?(finish|stop|done|skip)\s*$",
+    r"^\s*(please\s+)?(i\s+(want|would\s+like)\s+to\s+)?(finish|stop|end|wrap\s*up)(\s+(the|this)?\s*interview)?(\s+(now|here|please))?\s*$",
+    r"^\s*(i'm|im|i\s+am)\s+done(\s+now|\s+here|\s+with\s+this)?\s*$",
+    r"^\s*(skip\s+rest|that's\s+all|thats\s+all)\s*$",
 ]
 
 AFFIRMATIVE_PATTERNS = [
@@ -49,16 +51,21 @@ QUALIFIED_AMBIGUOUS_PATTERNS = [
 
 def is_early_finish_request(text: str) -> bool:
     cleaned = text.strip().lower()
-    words = cleaned.split()
-    if len(words) > 10:
-        return False
-    return any(trig in cleaned for trig in EARLY_FINISH_TRIGGERS)
+    if cleaned in EXPLICIT_EARLY_FINISH_COMMANDS:
+        return True
+    
+    # Check bounded regex patterns
+    for pat in EARLY_FINISH_PATTERNS:
+        if re.search(pat, cleaned):
+            return True
+            
+    return False
 
 
 class InterviewOrchestrator:
     """
     Main orchestration engine for stateful, adaptive conversational onboarding interviews in MatchLens.
-    Refactored with atomic turn processing and strict validation rules.
+    Refactored with atomic turn processing, non-repeating question enforcement, and strict draft profile validation.
     """
 
     def __init__(
@@ -218,18 +225,29 @@ class InterviewOrchestrator:
         )
 
     def confirm_draft_profile(self, session_id: str) -> UserProfile:
+        """
+        User confirms and finalizes their draft profile.
+        Requires status to be READY_FOR_REVIEW and all essential profile fields to be satisfied.
+        """
         state = self.state_manager.get_session(session_id)
         if not state:
             raise ValueError(f"Session ID '{session_id}' not found.")
             
-        if state.status != InterviewStatus.READY_FOR_REVIEW and not state.progress.essential_fields_satisfied:
+        if state.status != InterviewStatus.READY_FOR_REVIEW:
             raise ValueError(
                 f"Cannot confirm profile in status '{state.status.value}'. "
-                "Interview must be in 'ready_for_review' state or have all essential fields satisfied before finalizing."
+                "Interview must be in 'ready_for_review' state before finalizing."
             )
 
         if state.pending_confirmations:
             raise ValueError("Cannot finalize profile while unconfirmed inferences exist in pending confirmations.")
+
+        missing_essential = self._get_missing_essential_fields(state)
+        if missing_essential:
+            raise ValueError(
+                f"Cannot finalize an incomplete profile with missing essential fields: {missing_essential}. "
+                "An early-finished or incomplete profile must not produce a match-ready profile until essential information is provided."
+            )
 
         state.status = InterviewStatus.COMPLETED
         state.progress.percentage = 100.0
@@ -245,25 +263,18 @@ class InterviewOrchestrator:
     # --- Internal Helpers ---
 
     def _process_pending_confirmation(self, state: InterviewState, user_input: str) -> tuple[List[str], str, str]:
-        """
-        Parses explicit affirmative or negative responses to pending confirmations.
-        Returns tuple of (resolved_fields, status_code, message).
-        status_code is 'confirmed', 'rejected', or 'ambiguous'.
-        """
         if not state.pending_confirmations:
             return [], "none", ""
 
         pending = state.pending_confirmations[0]
         cleaned = user_input.strip().lower()
 
-        # Any qualifying or hesitant phrase makes confirmation ambiguous
         if any(re.search(pat, cleaned) for pat in QUALIFIED_AMBIGUOUS_PATTERNS):
             return [], "ambiguous", f"Qualified/hesitant response '{user_input}' for {pending.field_name}"
 
         is_affirmative = any(re.search(pat, cleaned) for pat in AFFIRMATIVE_PATTERNS)
         is_negative = any(re.search(pat, cleaned) for pat in NEGATIVE_PATTERNS)
 
-        # If both affirmative and negative cues are found, treat as ambiguous/contradictory
         if is_affirmative and is_negative:
             return [], "ambiguous", f"Contradictory response '{user_input}' for {pending.field_name}"
 
@@ -317,10 +328,6 @@ class InterviewOrchestrator:
         return newly_extracted
 
     def _safely_update_profile(self, profile: UserProfile, category: str, field: str, value: Any) -> bool:
-        """
-        Validates attribute update against Pydantic schema before mutating profile.
-        Returns True if update succeeded, False if validation failed.
-        """
         try:
             if category == "self_attributes":
                 current_dict = profile.attributes.model_dump()
@@ -345,6 +352,20 @@ class InterviewOrchestrator:
             return False
         return False
 
+    def _is_question_previously_asked(self, state: InterviewState, q_id: str, q_text: str) -> bool:
+        """
+        Checks if question ID OR question text content has already been asked in this session.
+        """
+        if q_id in state.previously_asked_question_ids:
+            return True
+
+        norm_q = q_text.strip().lower()
+        for msg in state.conversation_history:
+            if msg.role == "assistant" and msg.content.strip().lower() == norm_q:
+                return True
+
+        return False
+
     async def _select_non_repeating_question(
         self,
         state: InterviewState,
@@ -352,7 +373,7 @@ class InterviewOrchestrator:
         missing_field_key: Optional[str],
     ) -> tuple[str, str]:
         """
-        Selects question ensuring question_id has not already been asked in this session.
+        Selects question ensuring both question_id AND question text content are unique.
         """
         q_id, q_text = await self.question_selector.select_and_generate_question(
             state=state,
@@ -360,23 +381,24 @@ class InterviewOrchestrator:
             missing_field_key=missing_field_key,
         )
 
-        if q_id not in state.previously_asked_question_ids:
+        if not self._is_question_previously_asked(state, q_id, q_text):
             return q_id, q_text
 
-        # Fallback: search for an unasked question in current or subsequent topics
+        # Search for an unasked question in missing fields for current or subsequent topics
         topic_missing = self._get_missing_fields_for_topic(state, target_topic)
         for alternative_field in topic_missing:
-            alt_id = f"{target_topic.value}.{alternative_field}"
-            if alt_id not in state.previously_asked_question_ids:
-                return await self.question_selector.select_and_generate_question(
-                    state=state,
-                    target_topic=target_topic,
-                    missing_field_key=alternative_field,
-                )
+            alt_id, alt_text = await self.question_selector.select_and_generate_question(
+                state=state,
+                target_topic=target_topic,
+                missing_field_key=alternative_field,
+            )
+            if not self._is_question_previously_asked(state, alt_id, alt_text):
+                return alt_id, alt_text
 
-        # Ultimate unique fallback ID if all topic default questions were asked
+        # Fallback to unique prompt for topic
         fallback_unique_id = f"{target_topic.value}.q_{len(state.previously_asked_question_ids) + 1}"
-        return fallback_unique_id, q_text
+        fallback_text = f"Could you share a bit more detail regarding your {target_topic.value.replace('_', ' ')}?"
+        return fallback_unique_id, fallback_text
 
     def _should_advance_topic(self, state: InterviewState) -> bool:
         topic_str = state.current_topic.value

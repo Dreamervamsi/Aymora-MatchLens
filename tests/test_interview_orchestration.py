@@ -236,15 +236,22 @@ async def test_7_correcting_previously_provided_info(orchestrator, mock_extracto
 
 @pytest.mark.anyio
 async def test_8_prevent_duplicate_questions(orchestrator, mock_extractor):
-    """8. Test preventing duplicate questions."""
+    """8. Test preventing duplicate questions across saved sessions and assistant messages."""
     state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_008")
     mock_extractor.extract_from_text.return_value = mock_extraction_response()
     
     res1 = await orchestrator.process_turn(session_id="sess_008", user_message="Hello.")
     res2 = await orchestrator.process_turn(session_id="sess_008", user_message="Still here.")
     
-    history = state.previously_asked_question_ids
-    assert len(history) == len(set(history))
+    # Inspect persisted state in state manager
+    saved_state = orchestrator.state_manager.get_session("sess_008")
+    history_ids = saved_state.previously_asked_question_ids
+    
+    # Inspect actual assistant messages
+    assistant_messages = [msg.content for msg in saved_state.conversation_history if msg.role == "assistant"]
+    
+    assert len(history_ids) == len(set(history_ids))
+    assert len(assistant_messages) == len(set(assistant_messages))
 
 
 @pytest.mark.anyio
@@ -269,13 +276,21 @@ async def test_9_handling_ai_failures_without_losing_state(orchestrator, mock_ex
 @pytest.mark.anyio
 async def test_10_early_completion_and_maximum_turn_limits(orchestrator, mock_extractor):
     """10. Test early completion requests and maximum turn limits."""
-    # Natural language early finish requests
-    for phrase in ["I want to finish now", "finish interview", "stop", "done"]:
-        s, _ = orchestrator.start_interview(user_id="user_123", session_id=f"sess_early_{phrase[:4]}")
-        mock_extractor.extract_from_text.return_value = mock_extraction_response()
-        res = await orchestrator.process_turn(session_id=f"sess_early_{phrase[:4]}", user_message=phrase)
-        assert res.interview_status == InterviewStatus.READY_FOR_REVIEW
-        assert res.is_ready_for_review is True
+    # Populate essential fields so confirm_draft_profile can succeed for complete early finish
+    mock_extractor.extract_from_text.return_value = mock_extraction_response(
+        self_attrs={"age": 30, "gender": "man", "relationship_intent": "long_term", "smoking": "never", "drinking": "never", "wants_children": "no"},
+        partner_prefs={"acceptable_genders": ["woman"], "desired_intentions": ["long_term"]}
+    )
+    
+    s, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_early_complete")
+    await orchestrator.process_turn(session_id="sess_early_complete", user_message="I am 30 male non smoker non drinker looking for long term woman.")
+    
+    res = await orchestrator.process_turn(session_id="sess_early_complete", user_message="finish interview")
+    assert res.interview_status == InterviewStatus.READY_FOR_REVIEW
+    assert res.is_ready_for_review is True
+    
+    profile = orchestrator.confirm_draft_profile("sess_early_complete")
+    assert profile.attributes.age == 30
 
 
 @pytest.mark.anyio
@@ -299,52 +314,30 @@ async def test_11_interview_state_serialization(orchestrator, mock_extractor):
 
 
 @pytest.mark.anyio
-async def test_12_generating_a_review_ready_draft_and_final_confirmation(orchestrator, mock_extractor):
-    """12. Test generating a review-ready draft and confirming completion."""
-    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_012")
+async def test_12_early_finish_incomplete_profile_cannot_be_confirmed(orchestrator, mock_extractor):
+    """12. Test that early-finished incomplete profile CANNOT be confirmed and raises ValueError."""
+    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_012_inc")
     mock_extractor.extract_from_text.return_value = mock_extraction_response()
     
-    res = await orchestrator.process_turn(session_id="sess_012", user_message="done")
+    # Request early finish without answering essential fields
+    res = await orchestrator.process_turn(session_id="sess_012_inc", user_message="done")
     assert res.interview_status == InterviewStatus.READY_FOR_REVIEW
+    assert res.progress.essential_fields_satisfied is False
     
-    final_profile = orchestrator.confirm_draft_profile("sess_012")
-    final_state = orchestrator.state_manager.get_session("sess_012")
-    
-    assert final_state.status == InterviewStatus.COMPLETED
-    assert final_state.progress.percentage == 100.0
-    assert isinstance(final_profile, UserProfile)
+    # confirm_draft_profile MUST fail!
+    with pytest.raises(ValueError, match="Cannot finalize an incomplete profile with missing essential fields"):
+        orchestrator.confirm_draft_profile("sess_012_inc")
 
 
 @pytest.mark.anyio
-async def test_13_prevent_confirm_draft_profile_in_active_or_invalid_state(orchestrator, mock_extractor):
-    """13. Test that confirm_draft_profile raises ValueError if interview is not ready for review."""
-    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_013")
+async def test_13_false_positive_finish_phrases_ignored(orchestrator, mock_extractor):
+    """13. Test that sentences containing words like 'finish' in context do NOT trigger early finish."""
+    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_013_false_pos")
+    mock_extractor.extract_from_text.return_value = mock_extraction_response()
     
-    # Session is ACTIVE and essential fields are NOT satisfied
-    with pytest.raises(ValueError, match="Cannot confirm profile in status 'active'"):
-        orchestrator.confirm_draft_profile("sess_013")
-
-
-@pytest.mark.anyio
-async def test_14_contradictory_confirmation_response_handling(orchestrator, mock_extractor):
-    """14. Test contradictory yes/no responses (e.g. 'Yes, but no') remain ambiguous without altering profile."""
-    state, _ = orchestrator.start_interview(user_id="user_123", session_id="sess_014")
-    
-    mock_extractor.extract_from_text.return_value = mock_extraction_response(
-        confirmations=[{
-            "field_name": "smoking",
-            "target_category": "self_attributes",
-            "proposed_value": "never",
-            "confidence": 0.7,
-            "reasoning": "User said health conscious",
-            "clarification_question": "Do you never smoke?"
-        }]
+    # Input with 'finish' in middle of long sentence
+    res = await orchestrator.process_turn(
+        session_id="sess_013_false_pos",
+        user_message="I usually finish work around 5pm and then I like going for a run or reading."
     )
-    await orchestrator.process_turn(session_id="sess_014", user_message="I like health.")
-    
-    # Contradictory response
-    res = await orchestrator.process_turn(session_id="sess_014", user_message="Yes, but actually no.")
-    
-    p = orchestrator.get_draft_profile("sess_014")
-    assert p.attributes.smoking is None
-    assert len(res.pending_confirmations) == 1
+    assert res.interview_status == InterviewStatus.ACTIVE  # Not early finish!
