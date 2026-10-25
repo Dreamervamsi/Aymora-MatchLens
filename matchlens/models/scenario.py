@@ -12,6 +12,10 @@ class ScenarioDefinition(BaseModel):
     target_dimension: SupportedDimension
     title: str
     allowed_options: List[str]
+    description: Optional[str] = None
+    self_prompt: Optional[str] = None
+    partner_prompt: Optional[str] = None
+    option_descriptions: Optional[Dict[str, str]] = None
 
 
 # Pre-defined catalog of scenario assessments
@@ -21,18 +25,45 @@ KNOWN_SCENARIO_CATALOG: Dict[str, ScenarioDefinition] = {
         target_dimension=DIMENSION_COMMUNICATION,
         title="Handling disagreement after a stressful day",
         allowed_options=["discuss_immediately", "cool_down_first", "written_first", "defer_to_partner"],
+        description="A major disagreement arises at the end of a long, stressful workday.",
+        self_prompt="What would you most likely do in this situation?",
+        partner_prompt="What would you prefer or be comfortable with your partner doing in the same situation?",
+        option_descriptions={
+            "discuss_immediately": "Talk through the issue immediately to clear the air.",
+            "cool_down_first": "Take time alone to process before discussing.",
+            "written_first": "Express thoughts in a text or letter before talking.",
+            "defer_to_partner": "Let partner take the lead on when and how to resolve.",
+        },
     ),
     "social_energy_01": ScenarioDefinition(
         scenario_id="social_energy_01",
         target_dimension=DIMENSION_LIFESTYLE,
         title="Weekend downtime preferences",
         allowed_options=["stay_home_quiet", "small_group_gathering", "large_party_outdoors", "spontaneous_travel"],
+        description="You have a completely free weekend after a demanding week.",
+        self_prompt="What would you most likely do in this situation?",
+        partner_prompt="What would you prefer or be comfortable with your partner doing in the same situation?",
+        option_descriptions={
+            "stay_home_quiet": "Relax quietly at home with minimal social interaction.",
+            "small_group_gathering": "Host or attend a quiet gathering with a few close friends.",
+            "large_party_outdoors": "Attend a large social event, party, or outdoor festival.",
+            "spontaneous_travel": "Go on an unplanned weekend getaway or trip.",
+        },
     ),
     "financial_planning_01": ScenarioDefinition(
         scenario_id="financial_planning_01",
         target_dimension=DIMENSION_CORE_VALUES,
         title="Approach to joint budgeting and major expenses",
         allowed_options=["strict_savings_first", "balanced_spending", "experience_focused", "independent_finances"],
+        description="You are deciding how to manage money and allocate savings for future goals.",
+        self_prompt="What would you most likely do in this situation?",
+        partner_prompt="What would you prefer or be comfortable with your partner doing in the same situation?",
+        option_descriptions={
+            "strict_savings_first": "Prioritize strict savings and emergency reserves above all.",
+            "balanced_spending": "Maintain a balanced approach between saving and moderate spending.",
+            "experience_focused": "Prioritize spending on experiences, travel, and current enjoyment.",
+            "independent_finances": "Keep finances mostly separate with shared responsibilities.",
+        },
     ),
 }
 
@@ -41,9 +72,19 @@ class ScenarioCatalog:
     """
     Centralized catalog helper to validate scenario responses against known definitions.
     """
+    DEFAULT_SCENARIOS: List[str] = [
+        "conflict_resolution_01",
+        "social_energy_01",
+        "financial_planning_01",
+    ]
+
     @classmethod
     def get_definition(cls, scenario_id: str) -> Optional[ScenarioDefinition]:
         return KNOWN_SCENARIO_CATALOG.get(scenario_id)
+
+    @classmethod
+    def list_scenarios(cls) -> List[ScenarioDefinition]:
+        return list(KNOWN_SCENARIO_CATALOG.values())
 
 
 class ScenarioResponse(BaseModel):

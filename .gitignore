@@ -4,3 +4,4 @@ dist/
 __pycache__/
 phase-*.xml
 final-*.xml
+matchlens.egg-info/
