@@ -1,5 +1,8 @@
 from typing import Dict, Literal, Tuple
 
+# Minimum evidence coverage threshold for recommendation eligibility
+DEFAULT_MIN_EVIDENCE_COVERAGE: float = 60.0
+
 # Default dimension weights
 DEFAULT_DIMENSION_WEIGHTS: Dict[str, float] = {
     "core_values": 0.30,

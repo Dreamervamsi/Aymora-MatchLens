@@ -12,6 +12,7 @@ from matchlens.engine.dimension_scorers import (
 )
 from matchlens.engine.directional import calculate_directional_score
 from matchlens.engine.reciprocal import calculate_reciprocal_match
+from matchlens.engine.ranker import rank_candidates, RankingMetaData
 
 __all__ = [
     "check_mutual_eligibility",
@@ -22,4 +23,6 @@ __all__ = [
     "score_shared_interests",
     "calculate_directional_score",
     "calculate_reciprocal_match",
+    "rank_candidates",
+    "RankingMetaData",
 ]
