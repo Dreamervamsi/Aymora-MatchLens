@@ -24,10 +24,11 @@ def test_core_values_scoring():
         attributes=UserAttributes(core_values=["honesty", "family", "creativity"]),
     )
 
-    score, shared, gaps, evidence = score_core_values(evaluator, candidate)
+    score, shared, gaps, evidence, records = score_core_values(evaluator, candidate)
     assert score == pytest.approx(66.67, 0.1)
     assert len(shared) == 2  # honesty, family
     assert len(gaps) == 1  # ambition missing
+    assert len(records) > 0
 
 
 def test_relationship_intentions_scoring():
@@ -40,10 +41,11 @@ def test_relationship_intentions_scoring():
         attributes=UserAttributes(relationship_intent="long_term"),
     )
 
-    score, shared, gaps, _ = score_relationship_intentions(evaluator, candidate)
+    score, shared, gaps, _, records = score_relationship_intentions(evaluator, candidate)
     assert score == 100.0
     assert len(shared) == 1
     assert len(gaps) == 0
+    assert len(records) > 0
 
 
 def test_shared_interests_jaccard_scoring():
@@ -56,10 +58,11 @@ def test_shared_interests_jaccard_scoring():
         attributes=UserAttributes(interests=["reading", "cooking", "gaming"]),
     )
 
-    score, shared, gaps, _ = score_shared_interests(evaluator, candidate)
+    score, shared, gaps, _, records = score_shared_interests(evaluator, candidate)
     # Jaccard: 2 shared / 4 total unique = 50.0%
     assert score == 50.0
     assert len(shared) == 2
+    assert len(records) > 0
 
 
 def test_communication_with_scenarios():
@@ -68,7 +71,7 @@ def test_communication_with_scenarios():
         expectations=PartnerPreferences(desired_communication_styles=["direct"]),
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
                 expected_partner_preference="cool_down_first",
@@ -80,22 +83,24 @@ def test_communication_with_scenarios():
         attributes=UserAttributes(communication_style="direct"),
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
             )
         ],
     )
 
-    score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
+    score, shared, gaps, scenario_ev, records = score_communication(evaluator, candidate)
     assert score == 100.0
     assert len(scenario_ev) == 1
     assert "ALIGNS" in scenario_ev[0]
+    assert len(records) > 0
 
 
 def test_missing_data_returns_none():
     evaluator = UserProfile(user_id="e1")  # Default empty preferences
     candidate = UserProfile(user_id="c1")
 
-    score, _, _, _ = score_core_values(evaluator, candidate)
+    score, _, _, _, records = score_core_values(evaluator, candidate)
     assert score is None
+    assert len(records) == 0

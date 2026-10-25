@@ -23,7 +23,6 @@ def test_missing_mandatory_info_pending_status():
         expectations=PartnerPreferences(desired_intentions=["long_term"]),
         dealbreakers=Dealbreakers(strict_intention_match=True),
     )
-    # user_b has missing relationship_intent (None)
     user_b = UserProfile(
         user_id="user_b",
         attributes=UserAttributes(age=26, gender="woman", relationship_intent=None),
@@ -44,15 +43,14 @@ def test_self_matching_disallowed():
 
 
 def test_no_implicit_scenario_expectation_assumption():
-    # Evaluator has scenario response with NO expected_partner_preference set
     evaluator = UserProfile(
         user_id="e1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
-                expected_partner_preference=None,  # No explicit partner expectation
+                expected_partner_preference=None,
             )
         ],
     )
@@ -60,15 +58,14 @@ def test_no_implicit_scenario_expectation_assumption():
         user_id="c1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
             )
         ],
     )
 
-    score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
-    # Since no expected_partner_preference was provided, scenario comparison cannot be made
+    score, shared, gaps, scenario_ev, records = score_communication(evaluator, candidate)
     assert score is None
     assert len(scenario_ev) == 0
 
@@ -78,10 +75,10 @@ def test_explicit_partner_expectation_scenario_scoring():
         user_id="e1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
-                expected_partner_preference="discuss_immediately",  # Explicit expectation
+                expected_partner_preference="discuss_immediately",
             )
         ],
     )
@@ -89,27 +86,26 @@ def test_explicit_partner_expectation_scenario_scoring():
         user_id="c1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="discuss_immediately",
             )
         ],
     )
 
-    score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
+    score, shared, gaps, scenario_ev, records = score_communication(evaluator, candidate)
     assert score == 100.0
     assert len(scenario_ev) == 1
     assert "ALIGNS" in scenario_ev[0]
 
 
 def test_scenario_only_scoring():
-    # Profile with no communication attributes, only scenario
     evaluator = UserProfile(
         user_id="e1",
         attributes=UserAttributes(),
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
                 expected_partner_preference="discuss_immediately",
@@ -121,15 +117,15 @@ def test_scenario_only_scoring():
         attributes=UserAttributes(),
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="discuss_immediately",
             )
         ],
     )
 
-    score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
-    assert score == 100.0  # Uses scenario score without falling back to 50.0
+    score, shared, gaps, scenario_ev, records = score_communication(evaluator, candidate)
+    assert score == 100.0
 
 
 def test_zero_importance_scenario_ignored():
@@ -137,11 +133,11 @@ def test_zero_importance_scenario_ignored():
         user_id="e1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
                 expected_partner_preference="discuss_immediately",
-                importance=0.0,  # Zero importance
+                importance=0.0,
             )
         ],
     )
@@ -149,14 +145,14 @@ def test_zero_importance_scenario_ignored():
         user_id="c1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="discuss_immediately",
             )
         ],
     )
 
-    score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
+    score, shared, gaps, scenario_ev, records = score_communication(evaluator, candidate)
     assert score is None
     assert len(scenario_ev) == 0
 
@@ -166,7 +162,7 @@ def test_mismatched_scenario_definitions_ignored():
         user_id="e1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
+                scenario_id="conflict_resolution_01",
                 target_dimension="communication_preferences",
                 normalized_preference="cool_down_first",
                 expected_partner_preference="discuss_immediately",
@@ -177,14 +173,14 @@ def test_mismatched_scenario_definitions_ignored():
         user_id="c1",
         scenarios=[
             ScenarioResponse(
-                scenario_id="conflict_01",
-                target_dimension="lifestyle_compatibility",  # Mismatched target dimension
+                scenario_id="social_energy_01",  # Different scenario ID in candidate
+                target_dimension="lifestyle_compatibility",
                 normalized_preference="discuss_immediately",
             )
         ],
     )
 
-    score, shared, gaps, scenario_ev = score_communication(evaluator, candidate)
+    score, shared, gaps, scenario_ev, records = score_communication(evaluator, candidate)
     assert score is None
     assert len(scenario_ev) == 0
 
@@ -199,6 +195,6 @@ def test_consistent_string_normalization():
         attributes=UserAttributes(core_values=["honesty", "FAMILY "]),
     )
 
-    score, shared, gaps, _ = score_core_values(evaluator, candidate)
+    score, shared, gaps, _, records = score_core_values(evaluator, candidate)
     assert score == 100.0
     assert len(shared) == 2
