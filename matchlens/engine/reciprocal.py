@@ -58,10 +58,13 @@ def calculate_reciprocal_match(
     else:
         mutual_score = None
 
-    # Compute average evidence coverage
+    # Compute average evidence coverage and flag if either direction falls below min_evidence_coverage threshold
     avg_coverage = (dir_a_to_b.evidence_coverage + dir_b_to_a.evidence_coverage) / 2.0
     avg_coverage = round(avg_coverage, 2)
-    is_low_coverage = avg_coverage < min_evidence_coverage
+    is_low_coverage = (
+        dir_a_to_b.evidence_coverage < min_evidence_coverage
+        or dir_b_to_a.evidence_coverage < min_evidence_coverage
+    )
 
     # Synthesize evidence summary
     evidence_summary = _synthesize_evidence_summary(dir_a_to_b, dir_b_to_a)

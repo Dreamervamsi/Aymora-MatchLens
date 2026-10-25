@@ -3,7 +3,8 @@ Candidate ranking engine for MatchLens.
 Filters candidates by eligibility and evidence coverage, then ranks by mutual score with deterministic tie-breaking.
 """
 
-from typing import List, Tuple, Dict, Any
+import math
+from typing import List, Tuple, Dict, Any, Set
 from matchlens.models.profile import UserProfile
 from matchlens.models.scoring import MatchResult
 from matchlens.engine.reciprocal import calculate_reciprocal_match
@@ -12,17 +13,19 @@ from matchlens.config import DEFAULT_MIN_EVIDENCE_COVERAGE
 
 class RankingMetaData:
     """
-    Summary metrics regarding the candidate ranking execution.
+    Summary metrics regarding candidate ranking execution.
     """
     def __init__(
         self,
         total_candidates: int,
         eligible_candidates: int,
+        pending_information_candidates: int,
         filtered_for_coverage: int,
         returned_count: int,
     ):
         self.total_candidates = total_candidates
         self.eligible_candidates = eligible_candidates
+        self.pending_information_candidates = pending_information_candidates
         self.filtered_for_coverage = filtered_for_coverage
         self.returned_count = returned_count
 
@@ -30,6 +33,7 @@ class RankingMetaData:
         return {
             "total_candidates": self.total_candidates,
             "eligible_candidates": self.eligible_candidates,
+            "pending_information_candidates": self.pending_information_candidates,
             "filtered_for_coverage": self.filtered_for_coverage,
             "returned_count": self.returned_count,
         }
@@ -45,34 +49,49 @@ def rank_candidates(
     """
     Evaluates, filters, and ranks candidate profiles for requesting_user.
 
-    Steps:
-    1. For each candidate in candidates collection:
-       - Calculate reciprocal match score and evidence breakdown.
-    2. Filter candidates:
-       - Exclude candidates with is_eligible == False (dealbreaker violation or self-matching).
-       - Exclude candidates with evidence_coverage < min_evidence_coverage unless include_low_coverage=True.
-    3. Deterministic Sort Hierarchy:
-       - Primary: mutual_score (descending, None treated as 0.0)
-       - Secondary: evidence_coverage (descending)
-       - Tertiary: candidate user_b_id (alphabetical ascending for deterministic tie-breaking)
-    4. Slice top K matches.
+    Input Validations:
+    - top_k must be an integer > 0.
+    - min_evidence_coverage must be a finite float between 0.0 and 100.0.
+
+    Deduplication:
+    - Candidates with duplicate user IDs are deduplicated, preserving the first occurrence.
 
     Returns (top_matches, ranking_metadata).
     """
-    total_candidates = len(candidates)
+    if top_k <= 0:
+        raise ValueError(f"top_k must be a positive integer greater than 0, got {top_k}.")
+
+    if not math.isfinite(min_evidence_coverage) or not (0.0 <= min_evidence_coverage <= 100.0):
+        raise ValueError(
+            f"min_evidence_coverage must be a finite float between 0.0 and 100.0, got {min_evidence_coverage}."
+        )
+
+    # Deduplicate candidate profiles by user_id
+    seen_ids: Set[str] = set()
+    deduped_candidates: List[UserProfile] = []
+    for cand in candidates:
+        if cand.user_id not in seen_ids:
+            seen_ids.add(cand.user_id)
+            deduped_candidates.append(cand)
+
+    total_candidates = len(deduped_candidates)
     eligible_count = 0
+    pending_info_count = 0
     coverage_filtered_count = 0
 
     all_results: List[MatchResult] = []
 
-    for candidate in candidates:
+    for candidate in deduped_candidates:
         match_res = calculate_reciprocal_match(
             user_a=requesting_user,
             user_b=candidate,
             min_evidence_coverage=min_evidence_coverage,
         )
 
-        if not match_res.is_eligible:
+        if match_res.eligibility_status == "pending_information":
+            pending_info_count += 1
+            continue
+        elif not match_res.is_eligible:
             continue
 
         eligible_count += 1
@@ -83,11 +102,10 @@ def rank_candidates(
 
         all_results.append(match_res)
 
-    # Sort hierarchy
-    # Key sorting tuple:
-    # 1. -(mutual_score or 0.0)
-    # 2. -evidence_coverage
-    # 3. user_b_id (alphabetical)
+    # Deterministic Sort Hierarchy:
+    # 1. mutual_score (descending)
+    # 2. evidence_coverage (descending)
+    # 3. candidate user_b_id (alphabetical ascending)
     sorted_results = sorted(
         all_results,
         key=lambda r: (
@@ -102,6 +120,7 @@ def rank_candidates(
     metadata = RankingMetaData(
         total_candidates=total_candidates,
         eligible_candidates=eligible_count,
+        pending_information_candidates=pending_info_count,
         filtered_for_coverage=coverage_filtered_count,
         returned_count=len(top_matches),
     )

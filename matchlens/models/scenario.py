@@ -45,23 +45,6 @@ class ScenarioCatalog:
     def get_definition(cls, scenario_id: str) -> Optional[ScenarioDefinition]:
         return KNOWN_SCENARIO_CATALOG.get(scenario_id)
 
-    @classmethod
-    def validate_response(cls, scenario_id: str, target_dimension: str, preference: str) -> List[str]:
-        warnings = []
-        defn = cls.get_definition(scenario_id)
-        if defn:
-            if defn.target_dimension != target_dimension:
-                warnings.append(
-                    f"Scenario '{scenario_id}' catalog target dimension is '{defn.target_dimension}', "
-                    f"but response specifies '{target_dimension}'."
-                )
-            if preference and preference not in defn.allowed_options:
-                warnings.append(
-                    f"Option '{preference}' is not in catalog allowed options {defn.allowed_options} "
-                    f"for scenario '{scenario_id}'."
-                )
-        return warnings
-
 
 class ScenarioResponse(BaseModel):
     """
@@ -103,11 +86,24 @@ class ScenarioResponse(BaseModel):
 
     @model_validator(mode="after")
     def validate_against_catalog(self) -> "ScenarioResponse":
-        # Check against scenario catalog if scenario_id is known
         defn = ScenarioCatalog.get_definition(self.scenario_id)
         if defn:
             if defn.target_dimension != self.target_dimension:
                 raise ValueError(
-                    f"Scenario '{self.scenario_id}' must have target_dimension '{defn.target_dimension}', got '{self.target_dimension}'."
+                    f"Scenario '{self.scenario_id}' catalog target_dimension is '{defn.target_dimension}', "
+                    f"got '{self.target_dimension}'."
                 )
+            norm_pref = self.normalized_preference.strip().lower() if self.normalized_preference else ""
+            if norm_pref not in defn.allowed_options:
+                raise ValueError(
+                    f"Option '{self.normalized_preference}' is not an allowed option {defn.allowed_options} "
+                    f"for scenario '{self.scenario_id}'."
+                )
+            if self.expected_partner_preference:
+                exp_pref = self.expected_partner_preference.strip().lower()
+                if exp_pref not in defn.allowed_options:
+                    raise ValueError(
+                        f"Expected partner option '{self.expected_partner_preference}' is not an allowed option {defn.allowed_options} "
+                        f"for scenario '{self.scenario_id}'."
+                    )
         return self

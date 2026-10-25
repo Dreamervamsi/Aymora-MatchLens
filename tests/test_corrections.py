@@ -175,7 +175,7 @@ def test_mismatched_scenario_definitions_ignored():
             ScenarioResponse(
                 scenario_id="social_energy_01",  # Different scenario ID in candidate
                 target_dimension="lifestyle_compatibility",
-                normalized_preference="discuss_immediately",
+                normalized_preference="stay_home_quiet",
             )
         ],
     )

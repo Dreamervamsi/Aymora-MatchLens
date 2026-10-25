@@ -421,6 +421,11 @@ def _evaluate_scenario_dimension(
 ) -> Tuple[Optional[float], List[str], List[EvidenceRecord]]:
     """
     Evaluates scenario-based compatibility for target dimension with scenario integrity and importance weighting.
+
+    Perspective Correctness Rules:
+    - Candidate response represents candidate's self-reported behavior ONLY when c_scen.perspective == "self_behavior".
+      Responses where c_scen.perspective == "partner_expectation" describe candidate's partner wishes, NOT their own behavior.
+    - Evaluator's expectation comes from e_scen.expected_partner_preference (or e_scen.normalized_preference when e_scen.perspective == "partner_expectation").
     """
     records: List[EvidenceRecord] = []
     eval_scenarios = [
@@ -448,7 +453,18 @@ def _evaluate_scenario_dimension(
             if c_scen.target_dimension != e_scen.target_dimension:
                 continue
 
-            expected_partner_pref = normalize_str(e_scen.expected_partner_preference)
+            # Check candidate perspective: must be self_behavior to represent actual candidate behavior
+            if c_scen.perspective != "self_behavior":
+                continue
+
+            # Determine evaluator's partner expectation
+            if e_scen.expected_partner_preference:
+                expected_partner_pref = normalize_str(e_scen.expected_partner_preference)
+            elif e_scen.perspective == "partner_expectation":
+                expected_partner_pref = normalize_str(e_scen.normalized_preference)
+            else:
+                expected_partner_pref = None
+
             actual_cand_behavior = normalize_str(c_scen.normalized_preference)
 
             if expected_partner_pref is None:
@@ -471,7 +487,7 @@ def _evaluate_scenario_dimension(
             evidence_lines.append(
                 f"[{target_dimension}] Scenario '{e_scen.scenario_id}' {outcome_text}: "
                 f"Candidate behavior '{c_scen.normalized_preference}'{raw_cand_evidence} "
-                f"vs Evaluator expected '{e_scen.expected_partner_preference}' (importance: {w})."
+                f"vs Evaluator expected '{expected_partner_pref}' (importance: {w})."
             )
 
             records.append(
@@ -479,7 +495,7 @@ def _evaluate_scenario_dimension(
                     dimension_name=target_dimension,
                     source_type="scenario",
                     source_id=e_scen.scenario_id,
-                    evaluator_expectation=e_scen.expected_partner_preference,
+                    evaluator_expectation=expected_partner_pref,
                     candidate_value=c_scen.normalized_preference,
                     outcome=outcome_key,
                     score_impact=match_score,
