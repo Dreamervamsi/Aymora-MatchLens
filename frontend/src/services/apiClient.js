@@ -24,7 +24,7 @@ async function request(endpoint, options = {}) {
     method = 'GET',
     body = null,
     headers = {},
-    timeout = 15000, // 15s default request timeout
+    timeout = 30000, // 30s default timeout to handle AI extraction processing
     ...customConfig
   } = options;
 
@@ -49,7 +49,6 @@ async function request(endpoint, options = {}) {
 
   try {
     const response = await fetch(url, config);
-    clearTimeout(timeoutId);
 
     let responseData = null;
     const contentType = response.headers.get('content-type');
@@ -78,20 +77,21 @@ async function request(endpoint, options = {}) {
 
     return responseData;
   } catch (error) {
-    clearTimeout(timeoutId);
-
     if (error instanceof ApiError) {
       throw error;
     }
 
     if (error.name === 'AbortError') {
-      throw new ApiError('Request timed out after 15 seconds. Please try again.', 408);
+      const timeoutSec = Math.round(timeout / 1000);
+      throw new ApiError(`Request timed out after ${timeoutSec} seconds. Please try again.`, 408);
     }
 
     throw new ApiError(
       error.message || 'Unable to connect to MatchLens backend. Please check your network connection.',
       0
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
