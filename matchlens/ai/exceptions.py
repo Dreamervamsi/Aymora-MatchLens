@@ -13,6 +13,11 @@ class GroqAPIError(GroqError):
     pass
 
 
+class GroqPermanentAPIError(GroqAPIError):
+    """Raised when Groq API fails with permanent 4xx error (401, 400, 403, 404). Should not be retried."""
+    pass
+
+
 class GroqTimeoutError(GroqError):
     """Raised when Groq API call times out."""
     pass

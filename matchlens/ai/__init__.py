@@ -7,6 +7,7 @@ from matchlens.ai.exceptions import (
     GroqError,
     GroqMissingKeyError,
     GroqAPIError,
+    GroqPermanentAPIError,
     GroqTimeoutError,
     GroqValidationError,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "GroqError",
     "GroqMissingKeyError",
     "GroqAPIError",
+    "GroqPermanentAPIError",
     "GroqTimeoutError",
     "GroqValidationError",
     "FieldExtraction",

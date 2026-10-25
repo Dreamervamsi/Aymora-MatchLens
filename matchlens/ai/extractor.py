@@ -4,6 +4,7 @@ from typing import Optional
 from matchlens.ai.client import GroqClient
 from matchlens.ai.config import GroqSettings
 from matchlens.ai.models import ExtractedProfileUpdate
+from matchlens.models.scenario import ScenarioCatalog, ScenarioResponse
 
 logger = logging.getLogger(__name__)
 
@@ -11,24 +12,34 @@ SYSTEM_EXTRACTION_PROMPT = """
 You are an expert matchmaking AI intake processor for MatchLens.
 Your role is to analyze natural language user responses from conversational onboarding and extract structured compatibility data.
 
-CRITICAL EXTRACTION RULES:
-1. DISTINGUISH PERSPECTIVES:
-   - Self Characteristics -> self_attributes (e.g. "I am 28", "I don't smoke", "I value honesty")
-   - Partner Expectations -> partner_preferences (e.g. "Looking for someone 25-32", "Prefer a non-smoker")
-   - Hard Dealbreakers -> dealbreakers (e.g. "Never date a smoker", "Must want children")
+CRITICAL CONTRACT RULES:
+1. EXPLICIT VS INFERRED (CONFIRMATION CONTRACT):
+   - ONLY place information in `confirmed_self_attributes`, `confirmed_partner_preferences`, or `confirmed_dealbreakers` if the user explicitly and unambiguously stated it.
+   - If a trait, preference, or dealbreaker is inferred, assumed, ambiguous, or stated with uncertainty, DO NOT put it in confirmed fields. Instead, create an entry in `confirmations_needed` with:
+     * field_name
+     * target_category ('self_attributes', 'partner_preferences', or 'dealbreakers')
+     * proposed_value (the normalized value you inferred)
+     * confidence (0.0 to 1.0)
+     * reasoning (explanation of user's wording)
+     * clarification_question (question to ask the user)
+   - RULE: Any field listed in `confirmations_needed` MUST NOT be present in confirmed_self_attributes, confirmed_partner_preferences, or confirmed_dealbreakers!
 
-2. PRESERVE UNCERTAINTY & MISSING DATA:
-   - NEVER invent or guess facts not present in user text.
-   - Leave missing/unstated fields as null/None.
-   - Do NOT turn vague expressions into confirmed facts.
+2. CATEGORICAL NORMALIZATION:
+   - Extracted categories MUST strictly match allowed values:
+     * smoking: 'never', 'socially', 'regularly'
+     * drinking: 'never', 'socially', 'regularly'
+     * exercise: 'daily', 'weekly', 'rarely', 'never'
+     * wants_children: 'yes', 'no', 'open', 'maybe'
+     * relationship_intent: 'long_term', 'marriage', 'casual', 'friendship'
+     * communication_style: 'direct', 'gentle', 'expressive', 'analytical'
+     * conflict_resolution: 'discuss_immediately', 'cool_down_first', 'written_first'
+     * contact_frequency: 'frequent', 'daily_check_in', 'as_needed'
+   - Unstated or missing fields MUST remain null/None.
 
-3. FLAG AMBIGUITIES & CONFIRMATIONS:
-   - If user statement is ambiguous, add item to confirmations_needed with field_name, inferred_value, and clarification_question.
-   - List any unstated fields relevant to the conversation in unanswered_fields.
-   - Record any unclear statements in uncertainties.
-
-4. SCENARIO RESPONSES:
-   - If scenario assessment context is provided, parse user's normalized preference key into scenario_responses matching allowed option keys.
+3. DISTINGUISH PERSPECTIVES & HARD DEALBREAKERS:
+   - User's own traits -> confirmed_self_attributes
+   - Desired partner traits -> confirmed_partner_preferences
+   - Strict non-negotiables / dealbreakers -> confirmed_dealbreakers
 """
 
 
@@ -71,3 +82,44 @@ class GroqProfileExtractor:
         )
 
         return extracted_update
+
+    async def extract_scenario_response(
+        self,
+        scenario_id: str,
+        user_input: str,
+    ) -> ScenarioResponse:
+        """
+        Extracts and validates a ScenarioResponse for an active scenario assessment in the catalog.
+
+        Args:
+            scenario_id: Valid scenario identifier in ScenarioCatalog (e.g., 'conflict_resolution_01').
+            user_input: User natural language response to the scenario.
+
+        Returns:
+            ScenarioResponse validated against MatchLens catalog definition.
+        """
+        defn = ScenarioCatalog.get_definition(scenario_id)
+        if not defn:
+            raise ValueError(f"Scenario ID '{scenario_id}' is unknown and not found in ScenarioCatalog.")
+
+        scenario_system_prompt = f"""
+You are an AI assessment processor for MatchLens scenario evaluation.
+You are evaluating response for active scenario: '{defn.scenario_id}' ({defn.title}).
+Target Dimension: {defn.target_dimension}
+Allowed Choice Keys: {defn.allowed_options}
+
+RULES:
+1. normalized_preference MUST be strictly one of the allowed choice keys: {defn.allowed_options}.
+2. perspective MUST be 'self_behavior' (if describing user's own choice) or 'partner_expectation' (if describing expected partner choice).
+3. target_dimension MUST be exactly '{defn.target_dimension}'.
+4. scenario_id MUST be exactly '{defn.scenario_id}'.
+"""
+        prompt = f"User Natural Language Scenario Answer:\n\"{user_input}\""
+
+        scenario_resp = await self.client.generate_structured(
+            prompt=prompt,
+            system_instruction=scenario_system_prompt,
+            response_schema=ScenarioResponse,
+        )
+
+        return scenario_resp
