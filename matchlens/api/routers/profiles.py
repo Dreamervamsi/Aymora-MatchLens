@@ -25,3 +25,17 @@ async def get_user_profile(
             detail=f"Profile for user_id '{user_id}' was not found.",
         )
     return profile
+
+
+@router.put("/{user_id}", response_model=UserProfile)
+async def update_user_profile(
+    user_id: str,
+    profile: UserProfile,
+    repository: ProfileRepository = Depends(get_profile_repository),
+) -> UserProfile:
+    """
+    Saves or updates a user profile directly.
+    """
+    if profile.user_id != user_id:
+        profile.user_id = user_id
+    return repository.save_profile(profile, overwrite=True)

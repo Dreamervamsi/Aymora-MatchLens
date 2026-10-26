@@ -126,7 +126,8 @@ describe('ProfileReviewPage Component', () => {
 
       // Partner preferences
       expect(screen.getByText('Your Ideal Partner')).toBeInTheDocument();
-      expect(screen.getByText('26 - 35 Years Old')).toBeInTheDocument();
+      expect(screen.getByText('Min Age Preference')).toBeInTheDocument();
+      expect(screen.getByText('Max Age Preference')).toBeInTheDocument();
 
       // Dealbreakers
       expect(screen.getByText('Dealbreakers & Mandatory Rules')).toBeInTheDocument();
@@ -167,7 +168,7 @@ describe('ProfileReviewPage Component', () => {
     });
   });
 
-  it('4. displays limitation warning for profile editing', async () => {
+  it('4. displays direct field editing notice', async () => {
     sessionStorage.setItem('matchlens_interview_session_id', 'sess_review_123');
     sessionStorage.setItem('matchlens_user_id', 'test_user_123');
 
@@ -181,9 +182,9 @@ describe('ProfileReviewPage Component', () => {
     renderWithProviders(<ProfileReviewPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Need to modify profile details?')).toBeInTheDocument();
+      expect(screen.getByText('Direct Field Editing')).toBeInTheDocument();
       expect(
-        screen.getByText(/Direct field editing during profile review is currently unsupported/i)
+        screen.getByText(/Click/i)
       ).toBeInTheDocument();
     });
   });

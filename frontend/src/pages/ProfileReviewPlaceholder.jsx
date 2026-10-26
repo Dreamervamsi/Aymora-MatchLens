@@ -82,14 +82,104 @@ export const ProfileSection = ({ title, icon: Icon, children, description }) => 
 );
 
 /**
- * Single field row component.
+ * Single field row component with optional inline editing.
  */
-export const ProfileField = ({ label, value }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center justify-between py-1.5 gap-1 sm:gap-4 border-b border-[#FAF6F0] last:border-0">
-    <span className="text-xs font-semibold text-[#5C627A] uppercase tracking-wider">{label}</span>
-    <div className="text-sm text-[#2B2D42] text-left sm:text-right">{formatValue(value)}</div>
-  </div>
-);
+export const ProfileField = ({ label, value, onSave, options, isBoolean, isArray, isNumber }) => {
+  const [editing, setEditing] = useState(false);
+  const [editVal, setEditVal] = useState('');
+
+  const handleStartEdit = () => {
+    if (isArray) {
+      setEditVal(Array.isArray(value) ? value.join(', ') : '');
+    } else if (isBoolean) {
+      setEditVal(value ? 'true' : 'false');
+    } else {
+      setEditVal(value !== null && value !== undefined ? String(value) : '');
+    }
+    setEditing(true);
+  };
+
+  const handleSave = () => {
+    if (!onSave) return;
+    if (isBoolean) {
+      onSave(editVal === 'true');
+    } else if (isNumber) {
+      const num = parseInt(editVal, 10);
+      onSave(isNaN(num) ? null : num);
+    } else if (isArray) {
+      const arr = editVal.split(',').map((s) => s.trim()).filter(Boolean);
+      onSave(arr);
+    } else {
+      onSave(editVal.trim() || null);
+    }
+    setEditing(false);
+  };
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2 gap-2 border-b border-[#FAF6F0] last:border-0">
+      <span className="text-xs font-semibold text-[#5C627A] uppercase tracking-wider">{label}</span>
+      <div className="flex items-center gap-2">
+        {editing ? (
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {options ? (
+              <select
+                value={editVal}
+                onChange={(e) => setEditVal(e.target.value)}
+                className="text-xs p-1.5 border border-[#E8E3DC] rounded-lg bg-white focus:outline-none focus:border-[#E07A5F]"
+              >
+                <option value="">Not specified</option>
+                {options.map((opt) => (
+                  <option key={opt} value={opt}>{formatLabel(opt)}</option>
+                ))}
+              </select>
+            ) : isBoolean ? (
+              <select
+                value={editVal}
+                onChange={(e) => setEditVal(e.target.value)}
+                className="text-xs p-1.5 border border-[#E8E3DC] rounded-lg bg-white focus:outline-none focus:border-[#E07A5F]"
+              >
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            ) : (
+              <input
+                type={isNumber ? "number" : "text"}
+                value={editVal}
+                onChange={(e) => setEditVal(e.target.value)}
+                className="text-xs p-1.5 border border-[#E8E3DC] rounded-lg bg-white focus:outline-none focus:border-[#E07A5F] w-48"
+                placeholder={isArray ? "Comma separated values" : "Enter value"}
+              />
+            )}
+            <button
+              onClick={handleSave}
+              className="text-xs px-2.5 py-1 bg-[#E07A5F] text-white font-semibold rounded-lg hover:bg-[#D0694E] transition-colors"
+            >
+              Done
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="text-xs px-2.5 py-1 bg-[#FAF6F0] text-[#5C627A] rounded-lg hover:bg-[#E8E3DC]"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="text-sm text-[#2B2D42] text-left sm:text-right">{formatValue(value)}</div>
+            {onSave && (
+              <button
+                onClick={handleStartEdit}
+                className="text-xs text-[#E07A5F] hover:text-[#C85A3F] font-medium ml-2 px-2 py-0.5 rounded hover:bg-[#FDF0ED] transition-colors"
+              >
+                Edit
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
 
 /**
  * Formats explicit preference lists.
@@ -396,6 +486,54 @@ export const ProfileReviewPage = () => {
   const expectations = profileData?.expectations || {};
   const dealbreakers = profileData?.dealbreakers || {};
 
+  const updateAttribute = (field, val) => {
+    setProfileData((prev) => {
+      const updated = {
+        ...prev,
+        attributes: {
+          ...(prev?.attributes || {}),
+          [field]: val,
+        },
+      };
+      if (userId) {
+        profileService.updateProfile(userId, updated).catch((err) => console.warn('Field auto-save failed:', err));
+      }
+      return updated;
+    });
+  };
+
+  const updateExpectation = (field, val) => {
+    setProfileData((prev) => {
+      const updated = {
+        ...prev,
+        expectations: {
+          ...(prev?.expectations || {}),
+          [field]: val,
+        },
+      };
+      if (userId) {
+        profileService.updateProfile(userId, updated).catch((err) => console.warn('Field auto-save failed:', err));
+      }
+      return updated;
+    });
+  };
+
+  const updateDealbreaker = (field, val) => {
+    setProfileData((prev) => {
+      const updated = {
+        ...prev,
+        dealbreakers: {
+          ...(prev?.dealbreakers || {}),
+          [field]: val,
+        },
+      };
+      if (userId) {
+        profileService.updateProfile(userId, updated).catch((err) => console.warn('Field auto-save failed:', err));
+      }
+      return updated;
+    });
+  };
+
   return (
     <div className="max-w-3xl mx-auto w-full py-8 px-4 sm:px-6">
       {/* Top Banner & Header */}
@@ -429,7 +567,7 @@ export const ProfileReviewPage = () => {
             variant="primary"
             icon={CheckCircle}
             onClick={handleConfirmProfile}
-            disabled={confirming || sessionState?.status !== 'ready_for_review'}
+            disabled={confirming || (sessionState?.status !== 'ready_for_review' && !profileData)}
             className="shrink-0 shadow-sm"
           >
             {confirming ? 'Confirming Profile...' : 'Confirm My Profile'}
@@ -467,19 +605,19 @@ export const ProfileReviewPage = () => {
         icon={User}
         description="Your self-reported personal characteristics and lifestyle habits"
       >
-        <ProfileField label="Age" value={attributes.age} />
-        <ProfileField label="Gender" value={attributes.gender} />
-        <ProfileField label="Relationship Intent" value={attributes.relationship_intent} />
-        <ProfileField label="Core Values" value={attributes.core_values} />
-        <ProfileField label="Interests" value={attributes.interests} />
-        <ProfileField label="Smoking" value={attributes.smoking} />
-        <ProfileField label="Drinking" value={attributes.drinking} />
-        <ProfileField label="Exercise" value={attributes.exercise} />
-        <ProfileField label="Has Children" value={attributes.has_children} />
-        <ProfileField label="Wants Children" value={attributes.wants_children} />
-        <ProfileField label="Communication Style" value={attributes.communication_style} />
-        <ProfileField label="Conflict Resolution" value={attributes.conflict_resolution} />
-        <ProfileField label="Contact Frequency" value={attributes.contact_frequency} />
+        <ProfileField label="Age" value={attributes.age} isNumber onSave={(v) => updateAttribute('age', v)} />
+        <ProfileField label="Gender" value={attributes.gender} options={['man', 'woman', 'non-binary']} onSave={(v) => updateAttribute('gender', v)} />
+        <ProfileField label="Relationship Intent" value={attributes.relationship_intent} options={['long_term', 'marriage', 'casual', 'friendship']} onSave={(v) => updateAttribute('relationship_intent', v)} />
+        <ProfileField label="Core Values" value={attributes.core_values} isArray onSave={(v) => updateAttribute('core_values', v)} />
+        <ProfileField label="Interests" value={attributes.interests} isArray onSave={(v) => updateAttribute('interests', v)} />
+        <ProfileField label="Smoking" value={attributes.smoking} options={['never', 'socially', 'regularly']} onSave={(v) => updateAttribute('smoking', v)} />
+        <ProfileField label="Drinking" value={attributes.drinking} options={['never', 'socially', 'regularly']} onSave={(v) => updateAttribute('drinking', v)} />
+        <ProfileField label="Exercise" value={attributes.exercise} options={['daily', 'weekly', 'rarely', 'never']} onSave={(v) => updateAttribute('exercise', v)} />
+        <ProfileField label="Has Children" value={attributes.has_children} isBoolean onSave={(v) => updateAttribute('has_children', v)} />
+        <ProfileField label="Wants Children" value={attributes.wants_children} options={['yes', 'no', 'open', 'maybe']} onSave={(v) => updateAttribute('wants_children', v)} />
+        <ProfileField label="Communication Style" value={attributes.communication_style} options={['direct', 'gentle', 'expressive', 'analytical']} onSave={(v) => updateAttribute('communication_style', v)} />
+        <ProfileField label="Conflict Resolution" value={attributes.conflict_resolution} options={['discuss_immediately', 'cool_down_first', 'written_first']} onSave={(v) => updateAttribute('conflict_resolution', v)} />
+        <ProfileField label="Contact Frequency" value={attributes.contact_frequency} options={['frequent', 'daily_check_in', 'as_needed']} onSave={(v) => updateAttribute('contact_frequency', v)} />
       </ProfileSection>
 
       {/* Section 2: Your Ideal Partner */}
@@ -488,22 +626,16 @@ export const ProfileReviewPage = () => {
         icon={Heart}
         description="Independently captured expectations for a prospective partner"
       >
-        <ProfileField
-          label="Acceptable Age Range"
-          value={
-            expectations.min_age !== undefined && expectations.max_age !== undefined
-              ? `${expectations.min_age} - ${expectations.max_age} Years Old`
-              : null
-          }
-        />
-        <ProfileField label="Acceptable Genders" value={expectations.acceptable_genders} />
-        <ProfileField label="Desired Intentions" value={expectations.desired_intentions} />
-        <ProfileField label="Desired Core Values" value={expectations.desired_values} />
-        <ProfileField label="Acceptable Smoking" value={expectations.acceptable_smoking} />
-        <ProfileField label="Acceptable Drinking" value={expectations.acceptable_drinking} />
-        <ProfileField label="Desired Children Views" value={expectations.desired_wants_children} />
-        <ProfileField label="Communication Expectations" value={expectations.desired_communication_styles} />
-        <ProfileField label="Conflict Resolution Preference" value={expectations.desired_conflict_resolutions} />
+        <ProfileField label="Min Age Preference" value={expectations.min_age} isNumber onSave={(v) => updateExpectation('min_age', v)} />
+        <ProfileField label="Max Age Preference" value={expectations.max_age} isNumber onSave={(v) => updateExpectation('max_age', v)} />
+        <ProfileField label="Acceptable Genders" value={expectations.acceptable_genders} isArray onSave={(v) => updateExpectation('acceptable_genders', v)} />
+        <ProfileField label="Desired Intentions" value={expectations.desired_intentions} isArray onSave={(v) => updateExpectation('desired_intentions', v)} />
+        <ProfileField label="Desired Core Values" value={expectations.desired_values} isArray onSave={(v) => updateExpectation('desired_values', v)} />
+        <ProfileField label="Acceptable Smoking" value={expectations.acceptable_smoking} isArray onSave={(v) => updateExpectation('acceptable_smoking', v)} />
+        <ProfileField label="Acceptable Drinking" value={expectations.acceptable_drinking} isArray onSave={(v) => updateExpectation('acceptable_drinking', v)} />
+        <ProfileField label="Desired Children Views" value={expectations.desired_wants_children} isArray onSave={(v) => updateExpectation('desired_wants_children', v)} />
+        <ProfileField label="Communication Expectations" value={expectations.desired_communication_styles} isArray onSave={(v) => updateExpectation('desired_communication_styles', v)} />
+        <ProfileField label="Conflict Resolution Preference" value={expectations.desired_conflict_resolutions} isArray onSave={(v) => updateExpectation('desired_conflict_resolutions', v)} />
       </ProfileSection>
 
       {/* Section 3: Dealbreakers */}
@@ -512,11 +644,11 @@ export const ProfileReviewPage = () => {
         icon={Shield}
         description="Strict eligibility constraints used for match filtering"
       >
-        <ProfileField label="Strict Intention Match Required" value={dealbreakers.strict_intention_match} />
-        <ProfileField label="Strict Age Range Required" value={dealbreakers.strict_age_range} />
-        <ProfileField label="Strict Gender Match Required" value={dealbreakers.strict_gender_match} />
-        <ProfileField label="Smoking Dealbreaker" value={dealbreakers.smoking_dealbreaker} />
-        <ProfileField label="Children Dealbreaker" value={dealbreakers.children_dealbreaker} />
+        <ProfileField label="Strict Intention Match Required" value={dealbreakers.strict_intention_match} isBoolean onSave={(v) => updateDealbreaker('strict_intention_match', v)} />
+        <ProfileField label="Strict Age Range Required" value={dealbreakers.strict_age_range} isBoolean onSave={(v) => updateDealbreaker('strict_age_range', v)} />
+        <ProfileField label="Strict Gender Match Required" value={dealbreakers.strict_gender_match} isBoolean onSave={(v) => updateDealbreaker('strict_gender_match', v)} />
+        <ProfileField label="Smoking Dealbreaker" value={dealbreakers.smoking_dealbreaker} isBoolean onSave={(v) => updateDealbreaker('smoking_dealbreaker', v)} />
+        <ProfileField label="Children Dealbreaker" value={dealbreakers.children_dealbreaker} isBoolean onSave={(v) => updateDealbreaker('children_dealbreaker', v)} />
       </ProfileSection>
 
       {/* Section 4: Profile Review Status */}
@@ -537,11 +669,11 @@ export const ProfileReviewPage = () => {
         </div>
       </ProfileSection>
 
-      {/* Corrections / Limitations Notice */}
+      {/* Editing Tip Notice */}
       <div className="mt-8 p-6 bg-[#FAF6F0] rounded-2xl border border-[#E8E3DC] text-center">
-        <h4 className="text-sm font-bold text-[#2B2D42] mb-1">Need to modify profile details?</h4>
-        <p className="text-xs text-[#5C627A] max-w-lg mx-auto mb-4 leading-relaxed">
-          The review phase displays extracted profile traits. Direct field editing during profile review is currently unsupported on the backend and requires a separate backend feature enhancement.
+        <h4 className="text-sm font-bold text-[#2B2D42] mb-1">Direct Field Editing</h4>
+        <p className="text-xs text-[#5C627A] max-w-lg mx-auto mb-2 leading-relaxed">
+          Click <span className="font-semibold text-[#E07A5F]">Edit</span> next to any field above to modify your traits or preferences directly without making any AI calls!
         </p>
       </div>
 

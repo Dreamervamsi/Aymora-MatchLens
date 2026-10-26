@@ -12,6 +12,14 @@ export const profileService = {
   getProfile: async (userId) => {
     return apiClient.get(`/profiles/${userId}`);
   },
+
+  /**
+   * Directly updates or saves a UserProfile.
+   * PUT /api/v1/profiles/{user_id}
+   */
+  updateProfile: async (userId, profileData) => {
+    return apiClient.put(`/profiles/${userId}`, profileData);
+  },
 };
 
 export default profileService;
