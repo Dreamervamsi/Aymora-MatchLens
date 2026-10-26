@@ -111,7 +111,7 @@ export const MatchesPage = () => {
 
     // Step 3b: Fall back to checking profile persistence if no active session was checked
     if (!checkedActiveSession) {
-      isCompleted = isAssessmentPersistedInProfile(profile);
+      isCompleted = isAssessmentPersistedInProfile(profile, null, activeUserId);
     }
 
     if (!isCompleted) {

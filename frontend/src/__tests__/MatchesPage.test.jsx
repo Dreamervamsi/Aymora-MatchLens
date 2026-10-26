@@ -68,6 +68,12 @@ const mockConfirmedProfileWithAssessment = {
       normalized_preference: 'small_group_gathering',
       expected_partner_preference: 'small_group_gathering',
     },
+    {
+      scenario_id: 'financial_planning_01',
+      target_dimension: 'core_values',
+      normalized_preference: 'balanced_spending',
+      expected_partner_preference: 'balanced_spending',
+    },
   ],
 };
 
