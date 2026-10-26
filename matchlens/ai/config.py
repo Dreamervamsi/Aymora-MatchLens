@@ -10,11 +10,11 @@ class GroqSettings(BaseModel):
     """
     api_key_env_var: str = Field(default="GROQ_API_KEY", description="Environment variable name for Groq API key")
     model_name: str = Field(
-        default_factory=lambda: os.getenv("GROQ_MODEL_NAME", "llama-3.3-70b-versatile"),
+        default_factory=lambda: os.getenv("GROQ_MODEL_NAME", "llama-3.1-8b-instant"),
         description="Groq model identifier",
     )
     timeout_seconds: float = Field(
-        default_factory=lambda: float(os.getenv("GROQ_TIMEOUT_SECONDS", "30.0")),
+        default_factory=lambda: float(os.getenv("GROQ_TIMEOUT_SECONDS", "60.0")),
         ge=0.01,
         description="Request timeout in seconds",
     )
