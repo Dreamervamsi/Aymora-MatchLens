@@ -83,7 +83,7 @@ export const MatchesPage = () => {
       return;
     }
 
-    // Guard 3: Verify Assessment Completion via Authoritative State
+    // Guard 3: Verify Assessment Completion and Persistence
     let isCompleted = false;
     let checkedActiveSession = false;
 
@@ -98,7 +98,8 @@ export const MatchesPage = () => {
         if (assessmentState && (!assessmentState.user_id || assessmentState.user_id === activeUserId)) {
           checkedActiveSession = true;
           if (assessmentState.status === 'completed' || assessmentState.current_stage === 'completed') {
-            isCompleted = true;
+            // Assessment session completed - verify responses are actually persisted in profile
+            isCompleted = isAssessmentPersistedInProfile(profile, null, activeUserId);
           } else {
             // Status is active, ready_for_review, etc. -> Incomplete assessment
             isCompleted = false;

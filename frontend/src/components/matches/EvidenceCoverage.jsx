@@ -6,7 +6,12 @@ import { Info, AlertTriangle, ShieldCheck, HelpCircle } from 'lucide-react';
  * Safely handles missing/null coverage metrics without labeling missing data as "High Coverage".
  */
 export const EvidenceCoverage = ({ coverage = null, isLowCoverage = false }) => {
-  const hasValidMetric = coverage !== null && coverage !== undefined && !isNaN(coverage);
+  const hasValidMetric =
+    coverage !== null &&
+    coverage !== undefined &&
+    coverage !== '' &&
+    (typeof coverage === 'number' || (typeof coverage === 'string' && coverage.trim() !== '')) &&
+    !isNaN(Number(coverage));
   const roundedCoverage = hasValidMetric ? Math.max(0, Math.min(100, Math.round(coverage))) : null;
 
   return (

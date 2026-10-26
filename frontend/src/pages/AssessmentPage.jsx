@@ -219,7 +219,11 @@ export const AssessmentPage = () => {
         // Profile fetch failed
       }
 
-      if (stateRes?.status === 'completed' || isAssessmentPersistedInProfile(profile, assessmentData)) {
+      const isSessionCompleted = stateRes?.status === 'completed' || stateRes?.current_stage === 'completed';
+      const isPersistedInProfile = isAssessmentPersistedInProfile(profile, assessmentData, activeUserId);
+
+      // Fix P2: Require both valid session completion AND persisted profile data
+      if (isSessionCompleted && isPersistedInProfile) {
         setAssessmentData({
           ...stateRes,
           status: 'completed',
@@ -228,7 +232,7 @@ export const AssessmentPage = () => {
         setError(null);
       } else {
         setAssessmentData(stateRes);
-        setUncertainError('Backend state rechecked, but assessment is not confirmed yet. Please try confirming again.');
+        setUncertainError('Backend state rechecked, but assessment confirmation or profile persistence is incomplete. Please try confirming again.');
       }
     } catch {
       setUncertainError('Failed to verify backend status. Please try rechecking again.');

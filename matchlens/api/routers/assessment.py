@@ -15,6 +15,7 @@ from matchlens.api.schemas import (
     StartAssessmentRequest,
 )
 from matchlens.assessment.integration import attach_scenario_responses
+from matchlens.assessment.models import AssessmentStatus
 from matchlens.assessment.orchestrator import ScenarioAssessmentOrchestrator
 from matchlens.models.profile import UserProfile
 
@@ -148,21 +149,20 @@ async def get_assessment_state(
     """
     try:
         state = orchestrator.get_assessment_state(assessment_id)
-        summary_dict = {
-            sid: {
-                "self_response": state.collected_responses[sid].self_response if sid in state.collected_responses else None,
-                "partner_expectation": state.collected_responses[sid].partner_expectation if sid in state.collected_responses else None,
-            }
-            for sid in state.selected_scenario_ids
-        }
+        turn_result = orchestrator._build_turn_result(state)
         return AssessmentStateResponse(
-            assessment_id=state.assessment_id,
+            assessment_id=turn_result.assessment_id,
             user_id=state.user_id,
-            status=state.status,
-            current_stage=state.current_stage,
+            status=turn_result.status,
+            current_stage=turn_result.current_stage,
             selected_scenario_ids=state.selected_scenario_ids,
-            progress=state.progress,
-            summary_data=summary_dict,
+            current_scenario_id=turn_result.current_scenario_id,
+            scenario_definition=turn_result.scenario_definition,
+            prompt_text=turn_result.prompt_text,
+            allowed_options=turn_result.allowed_options,
+            unresolved_clarification=turn_result.unresolved_clarification,
+            progress=turn_result.progress,
+            summary_data=turn_result.summary_data,
         )
     except HTTPException:
         raise
@@ -189,6 +189,17 @@ async def confirm_assessment(
                 detail=f"User '{state.user_id}' does not have a confirmed profile in the repository.",
             )
 
+        # If orchestrator session is already completed, ensure profile is still saved or returned
+        if state.status == AssessmentStatus.COMPLETED:
+            # Check if profile already has responses attached
+            scenario_responses = orchestrator.get_completed_responses(assessment_id)
+            updated_profile = attach_scenario_responses(
+                profile=user_profile,
+                new_responses=scenario_responses,
+                replace_existing=True,
+            )
+            return repository.update_profile(updated_profile)
+
         # Retrieve completed canonical scenario responses first
         scenario_responses = orchestrator.get_completed_responses(assessment_id)
 
@@ -199,11 +210,15 @@ async def confirm_assessment(
             replace_existing=True,
         )
 
-        # Confirm assessment state in orchestrator
-        orchestrator.confirm_assessment(assessment_id)
-
-        # Save updated profile to repository
+        # Save updated profile to repository first
         saved = repository.update_profile(updated_profile)
+
+        # Confirm assessment state in orchestrator after successful profile persistence
+        try:
+            orchestrator.confirm_assessment(assessment_id)
+        except Exception as orchestrator_err:
+            logger.warning(f"Profile saved to repository, but marking assessment completed failed: {orchestrator_err}")
+
         return saved
     except HTTPException:
         raise

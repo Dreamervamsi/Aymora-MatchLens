@@ -240,10 +240,11 @@ class InterviewOrchestrator:
             is_ready=(working_state.status == InterviewStatus.READY_FOR_REVIEW),
         )
 
-    def confirm_draft_profile(self, session_id: str) -> UserProfile:
+    def confirm_draft_profile(self, session_id: str, mark_completed: bool = True) -> UserProfile:
         """
         User confirms and finalizes their draft profile.
         Requires status to be READY_FOR_REVIEW and all essential profile fields to be satisfied.
+        When mark_completed is False, returns draft profile without updating session status to COMPLETED yet.
         """
         state = self.state_manager.get_session(session_id)
         if not state:
@@ -265,10 +266,21 @@ class InterviewOrchestrator:
                 "An early-finished or incomplete profile must not produce a match-ready profile until essential information is provided."
             )
 
-        state.status = InterviewStatus.COMPLETED
-        state.progress.percentage = 100.0
-        self.state_manager.save_session(state)
+        if mark_completed:
+            state.status = InterviewStatus.COMPLETED
+            state.progress.percentage = 100.0
+            self.state_manager.save_session(state)
         return state.draft_profile
+
+    def complete_interview(self, session_id: str) -> None:
+        """
+        Marks an interview session as completed after profile persistence succeeds.
+        """
+        state = self.state_manager.get_session(session_id)
+        if state:
+            state.status = InterviewStatus.COMPLETED
+            state.progress.percentage = 100.0
+            self.state_manager.save_session(state)
 
     def get_draft_profile(self, session_id: str) -> UserProfile:
         state = self.state_manager.get_session(session_id)
@@ -350,12 +362,29 @@ class InterviewOrchestrator:
         try:
             if category == "self_attributes":
                 current_dict = profile.attributes.model_dump()
+                # Coerce scalar string to list for list-based attributes if needed
+                list_fields = {"core_values", "interests"}
+                if field in list_fields and isinstance(value, str):
+                    value = [v.strip() for v in value.split(",") if v.strip()]
                 current_dict[field] = value
                 validated = UserAttributes.model_validate(current_dict)
                 profile.attributes = validated
                 return True
             elif category == "partner_preferences":
                 current_dict = profile.expectations.model_dump()
+                # Coerce scalar string to list for list-based preference fields
+                list_fields = {
+                    "acceptable_genders",
+                    "desired_intentions",
+                    "desired_values",
+                    "acceptable_smoking",
+                    "acceptable_drinking",
+                    "desired_wants_children",
+                    "desired_communication_styles",
+                    "desired_conflict_resolutions",
+                }
+                if field in list_fields and isinstance(value, str):
+                    value = [v.strip() for v in value.split(",") if v.strip()]
                 current_dict[field] = value
                 validated = PartnerPreferences.model_validate(current_dict)
                 profile.expectations = validated

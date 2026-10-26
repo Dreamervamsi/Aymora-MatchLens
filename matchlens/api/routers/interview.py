@@ -102,6 +102,7 @@ async def get_interview_state(
         turn_count=state.turn_count,
         progress=state.progress,
         pending_confirmations=state.pending_confirmations,
+        conversation_history=state.conversation_history,
         draft_profile=state.draft_profile,
     )
 
@@ -123,7 +124,8 @@ async def confirm_interview_profile(
     existing_profile = repository.get_profile(state.user_id)
 
     try:
-        confirmed_profile = orchestrator.confirm_draft_profile(session_id)
+        # Validate profile completeness first without mutating session status to COMPLETED
+        confirmed_profile = orchestrator.confirm_draft_profile(session_id, mark_completed=False)
 
         # Fix P1: Preserve existing confirmed scenario responses if user already had a stored profile
         if existing_profile and existing_profile.scenarios:
@@ -135,7 +137,12 @@ async def confirm_interview_profile(
                 scenarios_map[s.scenario_id] = s
             confirmed_profile.scenarios = list(scenarios_map.values())
 
+        # Persist profile to repository FIRST
         saved = repository.save_profile(confirmed_profile, overwrite=True if existing_profile else False)
+
+        # Mark session as completed ONLY AFTER profile persistence succeeds
+        orchestrator.complete_interview(session_id)
+
         return saved
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))

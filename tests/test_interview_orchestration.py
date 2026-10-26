@@ -436,3 +436,21 @@ def test_18_state_manager_defensive_copies():
     internal = sm.get_session("sess_018")
     assert internal.turn_count == 0
 
+
+def test_19_safely_update_profile_list_field_coercion(orchestrator):
+    """19. Test that scalar strings are automatically coerced to lists for list-based attributes and preferences."""
+    from matchlens.models.profile import UserProfile
+    profile = UserProfile(user_id="u19")
+
+    # Single string coercion for partner preferences
+    assert orchestrator._safely_update_profile(profile, "partner_preferences", "desired_intentions", "long_term") is True
+    assert profile.expectations.desired_intentions == ["long_term"]
+
+    # Comma-separated string coercion for partner preferences
+    assert orchestrator._safely_update_profile(profile, "partner_preferences", "acceptable_smoking", "never, socially") is True
+    assert profile.expectations.acceptable_smoking == ["never", "socially"]
+
+    # Single string coercion for self attributes
+    assert orchestrator._safely_update_profile(profile, "self_attributes", "core_values", "honesty") is True
+    assert profile.attributes.core_values == ["honesty"]
+

@@ -283,6 +283,16 @@ async def test_invalid_json_and_schema_validation():
 
 
 @pytest.mark.anyio
+async def test_groq_settings_env_override(monkeypatch):
+    """Test that GroqSettings correctly reads timeout_seconds and max_retries from environment variables."""
+    monkeypatch.setenv("GROQ_TIMEOUT_SECONDS", "45.0")
+    monkeypatch.setenv("GROQ_MAX_RETRIES", "5")
+    settings = GroqSettings()
+    assert settings.timeout_seconds == 45.0
+    assert settings.max_retries == 5
+
+
+@pytest.mark.anyio
 async def test_timeout_handling():
     """Test GroqTimeoutError when call exceeds timeout_seconds."""
     mock_async_groq = MagicMock()

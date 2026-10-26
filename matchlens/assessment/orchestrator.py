@@ -189,11 +189,14 @@ class ScenarioAssessmentOrchestrator:
         # 3. If in READY_FOR_REVIEW state
         if working.status == AssessmentStatus.READY_FOR_REVIEW:
             if cleaned_input.lower() in ["confirm", "yes", "looks good", "submit", "done", "ok"]:
-                return self.confirm_assessment(assessment_id)
+                return self._build_turn_result(
+                    working,
+                    override_prompt="All scenarios answered! Please click the 'Confirm & Finalize' button in the UI to save your responses to your profile.",
+                )
             else:
                 return self._build_turn_result(
                     working,
-                    override_prompt="You are in review stage. Type 'confirm' to complete or use correct_response() to make changes.",
+                    override_prompt="You are in review stage. Please review your responses and click 'Confirm & Finalize' to save to profile.",
                 )
 
         return self._build_turn_result(working)

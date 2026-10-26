@@ -5,7 +5,7 @@ API request and response Pydantic models.
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from matchlens.interview.models import InterviewStatus, InterviewTopic, InterviewProgress, PendingConfirmation
+from matchlens.interview.models import ChatMessage, InterviewStatus, InterviewTopic, InterviewProgress, PendingConfirmation
 from matchlens.assessment.models import AssessmentStatus, AssessmentStage, AssessmentProgress, ClarificationRequest
 from matchlens.models.scenario import ScenarioDefinition, ScenarioResponse
 from matchlens.models.profile import UserProfile
@@ -49,6 +49,7 @@ class InterviewStateResponse(BaseModel):
     turn_count: int
     progress: InterviewProgress
     pending_confirmations: List[PendingConfirmation] = Field(default_factory=list)
+    conversation_history: List[ChatMessage] = Field(default_factory=list)
     draft_profile: UserProfile
 
 
@@ -92,6 +93,11 @@ class AssessmentStateResponse(BaseModel):
     status: AssessmentStatus
     current_stage: AssessmentStage
     selected_scenario_ids: List[str]
+    current_scenario_id: Optional[str] = None
+    scenario_definition: Optional[ScenarioDefinition] = None
+    prompt_text: Optional[str] = None
+    allowed_options: List[str] = Field(default_factory=list)
+    unresolved_clarification: Optional[ClarificationRequest] = None
     progress: AssessmentProgress
     summary_data: Optional[Dict[str, Dict[str, Optional[str]]]] = None
 
