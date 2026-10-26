@@ -17,17 +17,17 @@ const generateDefaultUserId = () => {
   return `user_${Math.random().toString(36).substring(2, 9)}`;
 };
 
-export const WorkflowProvider = ({ children }) => {
+export const WorkflowProvider = ({ children, initialUserId, initialAssessmentId }) => {
   const [userId, setUserIdState] = useState(() => {
-    return sessionStorage.getItem(SESSION_KEYS.USER_ID) || generateDefaultUserId();
+    return initialUserId ?? sessionStorage.getItem(SESSION_KEYS.USER_ID) ?? generateDefaultUserId();
   });
 
   const [sessionId, setSessionIdState] = useState(() => {
-    return sessionStorage.getItem(SESSION_KEYS.SESSION_ID) || null;
+    return sessionStorage.getItem(SESSION_KEYS.SESSION_ID) ?? null;
   });
 
   const [assessmentId, setAssessmentIdState] = useState(() => {
-    return sessionStorage.getItem(SESSION_KEYS.ASSESSMENT_ID) || null;
+    return initialAssessmentId ?? sessionStorage.getItem(SESSION_KEYS.ASSESSMENT_ID) ?? null;
   });
 
   // Sync to sessionStorage on changes

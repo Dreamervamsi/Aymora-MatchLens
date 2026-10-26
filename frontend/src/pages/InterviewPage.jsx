@@ -34,11 +34,13 @@ export const InterviewPage = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isRestarting, setIsRestarting] = useState(false);
   const [error, setError] = useState(null);
 
   const messagesEndRef = useRef(null);
   const isMountedRef = useRef(false);
   const activeSessionIdRef = useRef(sessionId);
+  const generationTokenRef = useRef(0);
   const activeRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -55,7 +57,9 @@ export const InterviewPage = () => {
   }, [messages, isLoading]);
 
   // Session Initialization & Recovery
-  const initSession = useCallback(async (forcedSessionId = undefined) => {
+  const initSession = useCallback(async (forcedSessionId = undefined, token = undefined) => {
+    const activeToken = token !== undefined ? token : ++generationTokenRef.current;
+    
     setIsInitializing(true);
     setError(null);
     setSessionExpired(false);
@@ -68,8 +72,8 @@ export const InterviewPage = () => {
         try {
           const stateData = await interviewService.getInterviewState(targetSessionId);
           
-          // Guard against out-of-order session responses
-          if (activeSessionIdRef.current && targetSessionId !== activeSessionIdRef.current) {
+          // Guard against out-of-order session responses or outdated generation tokens
+          if (generationTokenRef.current !== activeToken) {
             return;
           }
 
@@ -90,7 +94,7 @@ export const InterviewPage = () => {
 
             setMessages(
               stateData.conversation_history.map((msg, idx) => ({
-                id: `hist_${idx}`,
+                id: `hist_${idx}_${Date.now()}`,
                 role: msg.role,
                 content: msg.content,
                 timestamp: msg.timestamp,
@@ -98,24 +102,25 @@ export const InterviewPage = () => {
               }))
             );
           } else {
-            // Show neutral recovery notice instead of inventing an assistant message
+            // Display neutral system notice outside assistant-message model
             setMessages([
               {
-                id: 'res_notice',
-                role: 'assistant',
-                content: 'Session restored. How can I help you continue your interview?',
+                id: `sys_notice_${Date.now()}`,
+                role: 'system_notice',
+                content: 'Session restored. Detailed past conversation turns are unavailable.',
                 timestamp: new Date().toISOString(),
               },
             ]);
           }
-          setIsInitializing(false);
           return;
         } catch (recoverErr) {
+          if (generationTokenRef.current !== activeToken) {
+            return;
+          }
           // If 404/not found or expired, do NOT auto-start a new session. Show session-expired state.
           if (recoverErr.status === 404 || (recoverErr.message && recoverErr.message.includes('not found'))) {
             setSessionId(null);
             setSessionExpired(true);
-            setIsInitializing(false);
             return;
           } else {
             throw recoverErr;
@@ -126,7 +131,10 @@ export const InterviewPage = () => {
       // No active session or forced start: Start new interview
       const startRes = await interviewService.startInterview(userId);
       
-      // Guard against stale response
+      if (generationTokenRef.current !== activeToken) {
+        return;
+      }
+
       setSessionId(startRes.session_id);
       activeSessionIdRef.current = startRes.session_id;
 
@@ -142,16 +150,20 @@ export const InterviewPage = () => {
 
       setMessages([
         {
-          id: 'init_1',
+          id: `init_1_${Date.now()}`,
           role: 'assistant',
           content: startRes.assistant_message,
           timestamp: new Date().toISOString(),
         },
       ]);
     } catch (err) {
-      setError(err.message || 'Failed to initialize interview session.');
+      if (generationTokenRef.current === activeToken) {
+        setError(err.message || 'Failed to initialize interview session.');
+      }
     } finally {
-      setIsInitializing(false);
+      if (generationTokenRef.current === activeToken) {
+        setIsInitializing(false);
+      }
     }
   }, [userId, sessionId, setSessionId]);
 
@@ -159,52 +171,54 @@ export const InterviewPage = () => {
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
-      initSession();
+      const initialToken = ++generationTokenRef.current;
+      initSession(undefined, initialToken);
     }
   }, [initSession]);
 
   // Handle user turn submission
-  const handleSendMessage = async (userText, isRetry = false) => {
-    if (!userText.trim() || isLoading) return;
+  const handleSendMessage = async (userText, retryMsgId = null) => {
+    if (!userText.trim() || isLoading || isInitializing || isRestarting) return;
     const currentSessionId = activeSessionIdRef.current;
     if (!currentSessionId) return;
 
+    const activeToken = generationTokenRef.current;
     const requestId = ++activeRequestIdRef.current;
 
     setError(null);
     setIsLoading(true);
 
-    const userMsgId = `user_${Date.now()}`;
-    const newMsg = {
-      id: userMsgId,
-      role: 'user',
-      content: userText,
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-    };
+    const userMsgId = retryMsgId || `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    // If not retrying an existing message, add user message to list and clear composer draft
-    if (!isRetry) {
+    if (!retryMsgId) {
+      const newMsg = {
+        id: userMsgId,
+        role: 'user',
+        content: userText,
+        timestamp: new Date().toISOString(),
+        status: 'pending',
+      };
       setMessages((prev) => [...prev, newMsg]);
       setDraftMessage('');
     } else {
-      // Mark failed message as sending again
       setMessages((prev) =>
-        prev.map((msg) => (msg.id === userMsgId || msg.status === 'failed' ? { ...msg, status: 'pending' } : msg))
+        prev.map((msg) => (msg.id === retryMsgId ? { ...msg, status: 'pending' } : msg))
       );
     }
 
     try {
       const turnRes = await interviewService.processTurn(currentSessionId, userText);
 
-      // Guard against responses from old/stale sessions or outdated requests
-      if (activeSessionIdRef.current !== currentSessionId || activeRequestIdRef.current !== requestId) {
+      if (
+        generationTokenRef.current !== activeToken ||
+        activeSessionIdRef.current !== currentSessionId ||
+        activeRequestIdRef.current !== requestId
+      ) {
         return;
       }
 
-      // Mark user message as delivered
       setMessages((prev) =>
-        prev.map((msg) => (msg.content === userText && msg.status === 'pending' ? { ...msg, status: 'delivered' } : msg))
+        prev.map((msg) => (msg.id === userMsgId ? { ...msg, status: 'delivered' } : msg))
       );
 
       setStatus(turnRes.interview_status);
@@ -219,7 +233,7 @@ export const InterviewPage = () => {
       }
 
       const assistantMsg = {
-        id: `asst_${Date.now()}`,
+        id: `asst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         role: 'assistant',
         content: turnRes.assistant_message,
         timestamp: new Date().toISOString(),
@@ -229,16 +243,23 @@ export const InterviewPage = () => {
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
-      if (activeSessionIdRef.current !== currentSessionId || activeRequestIdRef.current !== requestId) {
+      if (
+        generationTokenRef.current !== activeToken ||
+        activeSessionIdRef.current !== currentSessionId ||
+        activeRequestIdRef.current !== requestId
+      ) {
         return;
       }
 
-      // Ambiguous network failure check: try to recover state before blindly marking failed
+      // Ambiguous network failure check: try to recover state before marking failed
       if (err.status === 0 || err.status === 408) {
         try {
           const recoveredState = await interviewService.getInterviewState(currentSessionId);
-          // Check if server turn_count actually advanced
-          if (recoveredState.turn_count > turnCount) {
+          if (
+            generationTokenRef.current === activeToken &&
+            activeSessionIdRef.current === currentSessionId &&
+            recoveredState.turn_count > turnCount
+          ) {
             setStatus(recoveredState.status);
             setCurrentTopic(recoveredState.current_topic);
             setTurnCount(recoveredState.turn_count);
@@ -248,12 +269,15 @@ export const InterviewPage = () => {
               setCompletedTopics(recoveredState.progress.completed_topics || []);
             }
             if (recoveredState.conversation_history && recoveredState.conversation_history.length > 0) {
+              const restoredConfs = recoveredState.pending_confirmations || [];
+              const lastAssistantIdx = recoveredState.conversation_history.findLastIndex((m) => m.role === 'assistant');
               setMessages(
                 recoveredState.conversation_history.map((msg, idx) => ({
-                  id: `hist_${idx}`,
+                  id: `hist_${idx}_${Date.now()}`,
                   role: msg.role,
                   content: msg.content,
                   timestamp: msg.timestamp,
+                  pendingConfirmations: msg.pendingConfirmations || (idx === lastAssistantIdx && restoredConfs.length > 0 ? restoredConfs : []),
                 }))
               );
             }
@@ -265,14 +289,15 @@ export const InterviewPage = () => {
         }
       }
 
-      // Mark user message as failed and keep draft for resubmission/retry
       setMessages((prev) =>
-        prev.map((msg) => (msg.content === userText && msg.status === 'pending' ? { ...msg, status: 'failed' } : msg))
+        prev.map((msg) => (msg.id === userMsgId ? { ...msg, status: 'failed' } : msg))
       );
       setDraftMessage(userText);
       setError(err.message || 'Failed to send message. Please try again.');
     } finally {
-      setIsLoading(false);
+      if (generationTokenRef.current === activeToken && activeRequestIdRef.current === requestId) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -283,10 +308,15 @@ export const InterviewPage = () => {
 
   // Handle fresh restart (Genuinely new session without setTimeout closures)
   const handleStartFresh = async () => {
-    if (isLoading) return;
-    setIsLoading(true);
+    if (isRestarting) return;
+    setIsRestarting(true);
+    setError(null);
+
+    const token = ++generationTokenRef.current;
+
     resetWorkflow();
     setSessionId(null);
+    activeSessionIdRef.current = null;
     setMessages([]);
     setStatus('active');
     setCurrentTopic('basic_and_intention');
@@ -295,12 +325,16 @@ export const InterviewPage = () => {
     setTurnCount(0);
     setPendingConfirmations([]);
     setSessionExpired(false);
-    setError(null);
     setDraftMessage('');
     setRejectionTarget(null);
 
-    // Call initSession with forced null sessionId to start fresh
-    await initSession(null);
+    try {
+      await initSession(null, token);
+    } finally {
+      if (generationTokenRef.current === token) {
+        setIsRestarting(false);
+      }
+    }
   };
 
   const isFinished = status === 'ready_for_review' || status === 'completed';
@@ -378,8 +412,9 @@ export const InterviewPage = () => {
                     <div className="self-end text-xs text-red-500 mt-1 flex items-center gap-2">
                       <span>Failed to send.</span>
                       <button
-                        onClick={() => handleSendMessage(msg.content, true)}
-                        className="font-semibold underline hover:text-red-700 cursor-pointer"
+                        disabled={isLoading}
+                        onClick={() => handleSendMessage(msg.content, msg.id)}
+                        className="font-semibold underline hover:text-red-700 cursor-pointer disabled:opacity-50"
                       >
                         Retry
                       </button>
@@ -462,9 +497,9 @@ export const InterviewPage = () => {
               </div>
             )}
             <ChatComposer
-              onSendMessage={handleSendMessage}
+              onSendMessage={(txt) => handleSendMessage(txt)}
               isLoading={isLoading}
-              disabled={isInitializing || isFinished || sessionExpired}
+              disabled={isInitializing || isRestarting || isFinished || sessionExpired}
               initialValue={draftMessage}
               placeholder="Type your response... (Press Enter to send)"
             />

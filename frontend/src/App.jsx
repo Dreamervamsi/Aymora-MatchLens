@@ -3,8 +3,8 @@ import { WorkflowProvider } from './context/WorkflowContext';
 import AppShell from './components/layout/AppShell';
 import WelcomePage from './pages/WelcomePage';
 import InterviewPage from './pages/InterviewPage';
-import ProfileReviewPlaceholder from './pages/ProfileReviewPlaceholder';
-import AssessmentPlaceholder from './pages/AssessmentPlaceholder';
+import ProfileReviewPage from './pages/ProfileReviewPlaceholder';
+import AssessmentPage from './pages/AssessmentPage';
 import MatchesPlaceholder from './pages/MatchesPlaceholder';
 
 export function App() {
@@ -15,8 +15,8 @@ export function App() {
           <Routes>
             <Route path="/" element={<WelcomePage />} />
             <Route path="/interview" element={<InterviewPage />} />
-            <Route path="/profile/review" element={<ProfileReviewPlaceholder />} />
-            <Route path="/assessment" element={<AssessmentPlaceholder />} />
+            <Route path="/profile/review" element={<ProfileReviewPage />} />
+            <Route path="/assessment" element={<AssessmentPage />} />
             <Route path="/matches" element={<MatchesPlaceholder />} />
           </Routes>
         </AppShell>

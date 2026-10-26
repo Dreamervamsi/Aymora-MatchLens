@@ -16,6 +16,16 @@ export const ChatMessage = ({
   isInteractive = false,
   isLoading = false,
 }) => {
+  if (role === 'system_notice') {
+    return (
+      <div className="my-3 w-full flex justify-center">
+        <div className="bg-[#FAF6F0] border border-[#E8E3DC] text-[#5C627A] px-4 py-2.5 rounded-xl text-xs font-medium text-center max-w-md shadow-2xs">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
   const isUser = role === 'user';
 
   const formattedTime = timestamp

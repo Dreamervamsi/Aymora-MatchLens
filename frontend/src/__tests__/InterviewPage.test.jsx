@@ -54,30 +54,151 @@ describe('InterviewPage Component', () => {
     });
   });
 
-  it('restores an existing interview session when sessionId exists in storage', async () => {
-    sessionStorage.setItem('matchlens_interview_session_id', 'existing_sess_456');
+  it('allows entering and submitting messages normally after Start Fresh completes', async () => {
+    sessionStorage.setItem('matchlens_interview_session_id', 'old_session_111');
 
     interviewService.getInterviewState.mockResolvedValueOnce({
-      session_id: 'existing_sess_456',
+      session_id: 'old_session_111',
       status: 'active',
-      current_topic: 'lifestyle',
-      turn_count: 3,
-      progress: { percentage: 33.3, completed_topics: ['basic_and_intention', 'core_values'] },
+      current_topic: 'basic_and_intention',
+      turn_count: 2,
+      progress: { percentage: 20, completed_topics: [] },
       conversation_history: [
-        { role: 'assistant', content: 'Do you smoke or drink socially?', timestamp: '2026-03-30T10:00:00Z' },
+        { role: 'assistant', content: 'Old intro message', timestamp: '2026-03-30T10:00:00Z' },
       ],
+      pending_confirmations: [],
+    });
+
+    interviewService.startInterview.mockResolvedValueOnce({
+      session_id: 'brand_new_session_222',
+      assistant_message: 'New session started. What is your age?',
+      interview_status: 'active',
+      current_topic: 'basic_and_intention',
+      progress: { percentage: 0, completed_topics: [] },
+      pending_confirmations: [],
+    });
+
+    interviewService.processTurn.mockResolvedValueOnce({
+      session_id: 'brand_new_session_222',
+      assistant_message: 'Thanks! What are your goals?',
+      interview_status: 'active',
+      current_topic: 'basic_and_intention',
+      progress: { percentage: 10, completed_topics: [] },
+      newly_extracted_fields: ['attributes.age'],
       pending_confirmations: [],
     });
 
     renderWithProviders(<InterviewPage />);
 
     await waitFor(() => {
-      expect(interviewService.getInterviewState).toHaveBeenCalledWith('existing_sess_456');
+      expect(screen.getByText('Old intro message')).toBeInTheDocument();
     });
 
+    const startFreshBtn = screen.getByRole('button', { name: /start fresh/i });
+    fireEvent.click(startFreshBtn);
+
     await waitFor(() => {
-      expect(screen.getByText('Do you smoke or drink socially?')).toBeInTheDocument();
-      expect(screen.getByText('33%')).toBeInTheDocument();
+      expect(screen.getByText('New session started. What is your age?')).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText('Type your response... (Press Enter to send)');
+    fireEvent.change(input, { target: { value: 'I am 25 years old' } });
+
+    const sendBtn = screen.getByRole('button', { name: '' });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(interviewService.processTurn).toHaveBeenCalledWith('brand_new_session_222', 'I am 25 years old');
+      expect(screen.getByText('Thanks! What are your goals?')).toBeInTheDocument();
+    });
+  });
+
+  it('handles multiple identical user messages and targets retry to specific failed message ID', async () => {
+    sessionStorage.setItem('matchlens_interview_session_id', 'sess_dup_msg');
+
+    interviewService.getInterviewState.mockResolvedValueOnce({
+      session_id: 'sess_dup_msg',
+      status: 'active',
+      current_topic: 'basic_and_intention',
+      turn_count: 1,
+      progress: { percentage: 10, completed_topics: [] },
+      conversation_history: [
+        { role: 'assistant', content: 'Tell me about yourself', timestamp: '2026-03-30T10:00:00Z' },
+      ],
+      pending_confirmations: [],
+    });
+
+    interviewService.processTurn
+      .mockResolvedValueOnce({
+        session_id: 'sess_dup_msg',
+        assistant_message: 'Got first message',
+        interview_status: 'active',
+        current_topic: 'basic_and_intention',
+        progress: { percentage: 15, completed_topics: [] },
+        newly_extracted_fields: [],
+        pending_confirmations: [],
+      })
+      .mockRejectedValueOnce(new Error('Second send failed'))
+      .mockResolvedValueOnce({
+        session_id: 'sess_dup_msg',
+        assistant_message: 'Retried second message success',
+        interview_status: 'active',
+        current_topic: 'basic_and_intention',
+        progress: { percentage: 20, completed_topics: [] },
+        newly_extracted_fields: [],
+        pending_confirmations: [],
+      });
+
+    renderWithProviders(<InterviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Tell me about yourself')).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText('Type your response... (Press Enter to send)');
+    const sendBtn = screen.getByRole('button', { name: '' });
+
+    // First send: "Hello"
+    fireEvent.change(input, { target: { value: 'Hello' } });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Got first message')).toBeInTheDocument();
+    });
+
+    // Second send: "Hello" (identical text)
+    fireEvent.change(input, { target: { value: 'Hello' } });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to send.')).toBeInTheDocument();
+    });
+
+    const retryBtn = screen.getByText('Retry');
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Retried second message success')).toBeInTheDocument();
+    });
+  });
+
+  it('renders neutral system notice when restoring session without conversation history', async () => {
+    sessionStorage.setItem('matchlens_interview_session_id', 'sess_no_hist');
+
+    interviewService.getInterviewState.mockResolvedValueOnce({
+      session_id: 'sess_no_hist',
+      status: 'active',
+      current_topic: 'lifestyle',
+      turn_count: 3,
+      progress: { percentage: 30, completed_topics: [] },
+      conversation_history: [],
+      pending_confirmations: [],
+    });
+
+    renderWithProviders(<InterviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Session restored. Detailed past conversation turns are unavailable.')).toBeInTheDocument();
     });
   });
 
@@ -301,15 +422,11 @@ describe('InterviewPage Component', () => {
 
     renderWithProviders(<InterviewPage />);
 
-    // Click Start Fresh before old getInterviewState resolves
+    // Perform Start Fresh while old getInterviewState is pending
     const startFreshBtn = screen.getByRole('button', { name: /start fresh/i });
     fireEvent.click(startFreshBtn);
 
-    await waitFor(() => {
-      expect(screen.getByText('New Session Welcome')).toBeInTheDocument();
-    });
-
-    // Now resolve late response from old session
+    // Resolve old getInterviewState late
     resolveGetState({
       session_id: 'old_sess',
       status: 'active',
@@ -322,9 +439,10 @@ describe('InterviewPage Component', () => {
       pending_confirmations: [],
     });
 
-    // Assert that late response did NOT overwrite new session state
-    expect(screen.queryByText('STALE OLD SESSION CONTENT')).not.toBeInTheDocument();
-    expect(screen.getByText('New Session Welcome')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('New Session Welcome')).toBeInTheDocument();
+      expect(screen.queryByText('STALE OLD SESSION CONTENT')).not.toBeInTheDocument();
+    });
   });
 
   it('shows explicit session expired state when session is missing/404 and requires explicit start', async () => {
