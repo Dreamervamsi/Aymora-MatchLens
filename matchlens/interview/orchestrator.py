@@ -208,9 +208,11 @@ class InterviewOrchestrator:
         # 4. Overall readiness & max turn check
         missing_essential = self._get_missing_essential_fields(working_state)
         max_turns_reached = working_state.turn_count >= self.settings.max_total_turns
-        all_topics_covered = (working_state.current_topic == InterviewTopic.DEALBREAKERS and len(self._get_missing_fields_for_topic(working_state, InterviewTopic.DEALBREAKERS)) == 0)
+        dealbreaker_qs = {"dealbreakers.default", "dealbreakers.dealbreakers"}
+        dealbreakers_asked = any(q in working_state.previously_asked_question_ids for q in dealbreaker_qs)
+        all_topics_covered = (working_state.current_topic == InterviewTopic.DEALBREAKERS and dealbreakers_asked)
 
-        if max_turns_reached or (len(missing_essential) == 0 and all_topics_covered):
+        if max_turns_reached or all_topics_covered or (len(missing_essential) == 0 and working_state.current_topic == InterviewTopic.DEALBREAKERS):
             working_state.status = InterviewStatus.PROCESSING_EXTRACTION
             working_state.pending_confirmations.clear()  # Clear pending proposals when review ready
             try:
@@ -529,6 +531,11 @@ class InterviewOrchestrator:
         turns_in_topic = state.topic_turn_counts.get(topic_str, 0)
         
         if turns_in_topic >= self.settings.max_turns_per_topic:
+            return True
+
+        from matchlens.interview.question_bank import STRUCTURED_QUESTION_BANK
+        topic_q_ids = [q_id for q_id, defn in STRUCTURED_QUESTION_BANK.items() if defn.topic == state.current_topic]
+        if topic_q_ids and all(q_id in state.previously_asked_question_ids for q_id in topic_q_ids):
             return True
 
         missing_topic_fields = self._get_missing_fields_for_topic(state, state.current_topic)
