@@ -24,10 +24,17 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Application lifespan manager.
-    Instantiates shared singletons for interview, assessment, and profile storage.
+    Instantiates shared singletons for interview, assessment, and profile storage,
+    and seeds initial synthetic candidate profiles for matching.
     """
     logger.info("Initializing MatchLens API shared services...")
-    app.state.profile_repository = ProfileRepository()
+    repo = ProfileRepository()
+    from matchlens.synthetic.profiles import create_synthetic_profiles
+    synthetic_profiles = create_synthetic_profiles()
+    for profile in synthetic_profiles.values():
+        repo.save_profile(profile, overwrite=True)
+
+    app.state.profile_repository = repo
     app.state.interview_orchestrator = InterviewOrchestrator()
     app.state.assessment_orchestrator = ScenarioAssessmentOrchestrator()
     yield
