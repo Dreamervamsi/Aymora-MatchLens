@@ -250,14 +250,14 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
     });
   });
 
-  it('2. Match API called with correct user ID and top_k=3', async () => {
+  it('2. Match API called with correct user ID and top_k=10', async () => {
     matchService.getMatches.mockResolvedValueOnce(mockMatchesResponse);
 
     renderWithProviders('alex_101');
 
     await waitFor(() => {
       expect(matchService.getMatches).toHaveBeenCalledTimes(1);
-      expect(matchService.getMatches).toHaveBeenCalledWith('alex_101', 3);
+      expect(matchService.getMatches).toHaveBeenCalledWith('alex_101', 10);
     });
   });
 
@@ -434,7 +434,8 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
     expect(matchService.getMatches).not.toHaveBeenCalled();
   });
 
-  it('13. Incomplete assessment prevents results', async () => {
+  it('13. Confirmed profile fetches matches without requiring scenario assessment', async () => {
+    matchService.getMatches.mockResolvedValueOnce(mockMatchesResponse);
     profileService.getProfile.mockResolvedValueOnce({
       user_id: 'alex_101',
       attributes: { age: 29 },
@@ -444,11 +445,8 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
     renderWithProviders('alex_101');
 
     await waitFor(() => {
-      expect(screen.getByText('Complete Scenario Assessment')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Go to Scenario Assessment' })).toBeInTheDocument();
+      expect(matchService.getMatches).toHaveBeenCalledWith('alex_101', 10);
     });
-
-    expect(matchService.getMatches).not.toHaveBeenCalled();
   });
 
   it('14. API failure displays retry', async () => {
@@ -517,7 +515,7 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
 
     // Verify initial request for user_A was initiated
     await waitFor(() => {
-      expect(matchService.getMatches).toHaveBeenCalledWith('user_A', 3);
+      expect(matchService.getMatches).toHaveBeenCalledWith('user_A', 10);
     });
 
     // Trigger workflow user context switch to user_B
@@ -525,7 +523,7 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
 
     // Verify user_B's match renders
     await waitFor(() => {
-      expect(matchService.getMatches).toHaveBeenCalledWith('user_B', 3);
+      expect(matchService.getMatches).toHaveBeenCalledWith('user_B', 10);
       expect(screen.getByText('Candidate B Match')).toBeInTheDocument();
     });
 
@@ -590,10 +588,10 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
     });
   });
 
-  it('19. Assessment completion verification check via active assessment session', async () => {
+  it('19. Confirmed profile fetches matches regardless of active assessment session status', async () => {
     sessionStorage.setItem('matchlens_assessment_id', 'active_assess_101');
+    matchService.getMatches.mockResolvedValueOnce(mockMatchesResponse);
 
-    // Active assessment state on backend is still 'ready_for_review' (not completed)
     assessmentService.getAssessmentState.mockResolvedValueOnce({
       assessment_id: 'active_assess_101',
       user_id: 'alex_101',
@@ -604,9 +602,7 @@ describe('MatchesPage Component — Phase 7.5 Reciprocal Match Discovery Suite',
     renderWithProviders('alex_101');
 
     await waitFor(() => {
-      expect(screen.getByText('Complete Scenario Assessment')).toBeInTheDocument();
+      expect(matchService.getMatches).toHaveBeenCalledWith('alex_101', 10);
     });
-
-    expect(matchService.getMatches).not.toHaveBeenCalled();
   });
 });

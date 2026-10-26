@@ -83,49 +83,9 @@ export const MatchesPage = () => {
       return;
     }
 
-    // Guard 3: Verify Assessment Completion and Persistence
-    let isCompleted = false;
-    let checkedActiveSession = false;
-
-    // Step 3a: If active assessment ID exists, check backend assessment status
-    const activeAssessmentId = assessmentId || sessionStorage.getItem('matchlens_assessment_id');
-    if (activeAssessmentId) {
-      try {
-        const assessmentState = await assessmentService.getAssessmentState(activeAssessmentId);
-        if (currentGen !== activeGenRef.current) return;
-
-        // Verify session belongs to active user
-        if (assessmentState && (!assessmentState.user_id || assessmentState.user_id === activeUserId)) {
-          checkedActiveSession = true;
-          if (assessmentState.status === 'completed' || assessmentState.current_stage === 'completed') {
-            // Assessment session completed - verify responses are actually persisted in profile
-            isCompleted = isAssessmentPersistedInProfile(profile, null, activeUserId);
-          } else {
-            // Status is active, ready_for_review, etc. -> Incomplete assessment
-            isCompleted = false;
-          }
-        }
-      } catch {
-        // Ignored; fall back to checking persisted profile responses
-      }
-    }
-
-    // Step 3b: Fall back to checking profile persistence if no active session was checked
-    if (!checkedActiveSession) {
-      isCompleted = isAssessmentPersistedInProfile(profile, null, activeUserId);
-    }
-
-    if (!isCompleted) {
-      if (currentGen === activeGenRef.current) {
-        setGuardState({ missingUserId: false, missingProfile: false, incompleteAssessment: true });
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Prerequisites satisfied: Retrieve top matches (top_k=3)
+    // Retrieve top matches (top_k=10) once confirmed profile exists
     try {
-      const response = await matchService.getMatches(activeUserId, 3);
+      const response = await matchService.getMatches(activeUserId, 10);
       if (currentGen !== activeGenRef.current) return;
 
       const rawMatches = response?.top_matches || (Array.isArray(response) ? response : []);
@@ -139,8 +99,8 @@ export const MatchesPage = () => {
         return true;
       });
 
-      // Render max 3 eligible recommendations preserving backend rank order
-      setMatches(eligibleMatches.slice(0, 3));
+      // Render eligible recommendations preserving backend rank order
+      setMatches(eligibleMatches);
     } catch (err) {
       if (currentGen !== activeGenRef.current) return;
       setError(err?.message || 'Failed to calculate reciprocal matches. Please check network or backend server.');
@@ -149,7 +109,7 @@ export const MatchesPage = () => {
         setLoading(false);
       }
     }
-  }, [userId, assessmentId]);
+  }, [userId]);
 
   useEffect(() => {
     fetchMatches();
