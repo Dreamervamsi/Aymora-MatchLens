@@ -19,7 +19,8 @@ const generateDefaultUserId = () => {
 
 export const WorkflowProvider = ({ children, initialUserId, initialAssessmentId }) => {
   const [userId, setUserIdState] = useState(() => {
-    return initialUserId ?? sessionStorage.getItem(SESSION_KEYS.USER_ID) ?? generateDefaultUserId();
+    if (initialUserId !== undefined) return initialUserId;
+    return sessionStorage.getItem(SESSION_KEYS.USER_ID) ?? generateDefaultUserId();
   });
 
   const [sessionId, setSessionIdState] = useState(() => {
@@ -34,6 +35,8 @@ export const WorkflowProvider = ({ children, initialUserId, initialAssessmentId 
   useEffect(() => {
     if (userId) {
       sessionStorage.setItem(SESSION_KEYS.USER_ID, userId);
+    } else {
+      sessionStorage.removeItem(SESSION_KEYS.USER_ID);
     }
   }, [userId]);
 

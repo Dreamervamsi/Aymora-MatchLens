@@ -13,6 +13,8 @@ export const Badge = ({
   const variantStyles = {
     rose: 'bg-[#FDF0ED] text-[#E07A5F] border border-[#F2C0B6]',
     stone: 'bg-[#FAF6F0] text-[#5C627A] border border-[#E8E3DC]',
+    sky: 'bg-[#F4F7F9] text-[#3D5A80] border border-[#BCD0E2]',
+    emerald: 'bg-[#EBF7F0] text-[#2A7B4C] border border-[#C2E8D0]',
     success: 'bg-[#EBF7F0] text-[#2A7B4C] border border-[#C2E8D0]',
     neutral: 'bg-white text-[#2B2D42] border border-[#E8E3DC]',
   };

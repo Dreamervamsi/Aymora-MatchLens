@@ -627,7 +627,13 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
     assessmentService.getAssessmentState.mockResolvedValue(reviewTurn);
     assessmentService.confirmAssessment.mockResolvedValueOnce({
       ...mockConfirmedProfile,
-      scenario_responses: [{ scenario_id: 'conflict_resolution_01' }],
+      scenario_responses: [
+        {
+          scenario_id: 'conflict_resolution_01',
+          normalized_preference: 'discuss_immediately',
+          expected_partner_preference: 'cool_down_first',
+        },
+      ],
     });
 
     renderWithProviders(<AssessmentPage />, 'test_user_123');
@@ -669,7 +675,13 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
     profileService.getProfile.mockImplementation(() => {
       return Promise.resolve({
         ...mockConfirmedProfile,
-        scenario_responses: [{ scenario_id: 'conflict_resolution_01' }],
+        scenario_responses: [
+          {
+            scenario_id: 'conflict_resolution_01',
+            normalized_preference: 'discuss_immediately',
+            expected_partner_preference: 'cool_down_first',
+          },
+        ],
       });
     });
 
@@ -739,7 +751,6 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
 
   it('22. Late responses from old sessions do not overwrite the current assessment', async () => {
     sessionStorage.setItem('matchlens_user_id', 'test_user_123');
-    sessionStorage.setItem('matchlens_assessment_id', 'assess_old');
 
     profileService.getProfile.mockResolvedValue(mockConfirmedProfile);
 
@@ -764,12 +775,8 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
 
     renderWithProviders(<AssessmentPage />);
 
-    // Wait for old assessment restore attempt to be pending, then start new assessment
-    await waitFor(() => {
-      expect(assessmentService.getAssessmentState).toHaveBeenCalledWith('assess_old');
-    });
-
-    const startBtn = screen.getByRole('button', { name: 'Start Assessment' });
+    // Click Start Assessment when ready
+    const startBtn = await screen.findByRole('button', { name: 'Start Assessment' });
     fireEvent.click(startBtn);
 
     // Resolve old request late

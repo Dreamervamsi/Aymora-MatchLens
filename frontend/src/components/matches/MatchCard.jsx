@@ -1,19 +1,10 @@
-import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, User, Heart, ShieldCheck, Sparkles } from 'lucide-react';
+import React from 'react';
+import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { Card, Badge, Button } from '../ui';
 import ReciprocalScore from './ReciprocalScore';
 import CompatibilityBreakdown from './CompatibilityBreakdown';
 import EvidenceCoverage from './EvidenceCoverage';
 import MatchExplanation from './MatchExplanation';
-
-/**
- * Normalizes candidate user ID into a clean display title (e.g., 'taylor_202' -> 'Candidate Taylor').
- */
-const formatCandidateName = (userBId) => {
-  if (!userBId) return 'Candidate';
-  const clean = userBId.replace(/_\d+$/, '').replace(/[_-]/g, ' ');
-  return clean.charAt(0).toUpperCase() + clean.slice(1);
-};
 
 /**
  * Candidate Initials for neutral fallback avatar.
@@ -29,8 +20,10 @@ const getInitials = (userBId) => {
 };
 
 export const MatchCard = ({ match, rank = 1, isExpanded = false, onToggleExpand }) => {
-  const candidateName = formatCandidateName(match?.user_b_id);
-  const initials = getInitials(match?.user_b_id);
+  // Candidate display identity: Use backend display_name if provided; otherwise show neutral "Candidate N" label
+  const candidateName = match?.display_name || `Candidate ${rank}`;
+  const userBId = match?.user_b_id;
+  const initials = getInitials(userBId);
 
   // Extract real backend attributes if available
   const mutualScore = match?.mutual_score;
@@ -66,7 +59,7 @@ export const MatchCard = ({ match, rank = 1, isExpanded = false, onToggleExpand 
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h3 className="text-lg font-bold text-[#2B2D42] tracking-tight">{candidateName}</h3>
-              <Badge variant="stone">ID: {match?.user_b_id}</Badge>
+              {userBId && <Badge variant="stone">ID: {userBId}</Badge>}
             </div>
             {topStrength && (
               <p className="text-xs text-[#5C627A] flex items-center gap-1 max-w-md line-clamp-1">
@@ -94,7 +87,7 @@ export const MatchCard = ({ match, rank = 1, isExpanded = false, onToggleExpand 
             onClick={onToggleExpand}
             onKeyDown={handleKeyDown}
             aria-expanded={isExpanded}
-            aria-label={`Toggle compatibility details for ${candidateName}`}
+            aria-label={`${isExpanded ? 'Hide' : 'View'} Compatibility Details for ${candidateName}`}
             icon={isExpanded ? ChevronUp : ChevronDown}
             className="shrink-0"
           >

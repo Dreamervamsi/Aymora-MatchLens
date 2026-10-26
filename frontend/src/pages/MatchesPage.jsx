@@ -1,13 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  HeartHandshake,
   ShieldAlert,
   AlertCircle,
   RefreshCw,
   ArrowRight,
   RotateCcw,
-  Sparkles,
   Inbox,
   CheckCircle,
 } from 'lucide-react';
@@ -15,6 +13,7 @@ import { Card, Button, Badge } from '../components/ui';
 import { useWorkflow } from '../context/WorkflowContext';
 import matchService from '../services/matchService';
 import profileService from '../services/profileService';
+import assessmentService from '../services/assessmentService';
 import { isAssessmentPersistedInProfile } from '../utils/assessmentUtils';
 import MatchCard from '../components/matches/MatchCard';
 
@@ -22,7 +21,7 @@ import MatchCard from '../components/matches/MatchCard';
  * Real Reciprocal Matches Page replacing MatchesPlaceholder.
  */
 export const MatchesPage = () => {
-  const { userId } = useWorkflow();
+  const { userId, assessmentId } = useWorkflow();
 
   // Guard & Loading States
   const [loading, setLoading] = useState(true);
@@ -35,7 +34,6 @@ export const MatchesPage = () => {
 
   // Data States
   const [matches, setMatches] = useState([]);
-  const [rankingMetadata, setRankingMetadata] = useState(null);
   const [expandedIndex, setExpandedIndex] = useState(null);
 
   // Generation counter to protect against stale asynchronous responses
@@ -85,8 +83,37 @@ export const MatchesPage = () => {
       return;
     }
 
-    // Guard 3: Verify Scenario Assessment Completion
-    const isCompleted = isAssessmentPersistedInProfile(profile);
+    // Guard 3: Verify Assessment Completion via Authoritative State
+    let isCompleted = false;
+    let checkedActiveSession = false;
+
+    // Step 3a: If active assessment ID exists, check backend assessment status
+    const activeAssessmentId = assessmentId || sessionStorage.getItem('matchlens_assessment_id');
+    if (activeAssessmentId) {
+      try {
+        const assessmentState = await assessmentService.getAssessmentState(activeAssessmentId);
+        if (currentGen !== activeGenRef.current) return;
+
+        // Verify session belongs to active user
+        if (assessmentState && (!assessmentState.user_id || assessmentState.user_id === activeUserId)) {
+          checkedActiveSession = true;
+          if (assessmentState.status === 'completed' || assessmentState.current_stage === 'completed') {
+            isCompleted = true;
+          } else {
+            // Status is active, ready_for_review, etc. -> Incomplete assessment
+            isCompleted = false;
+          }
+        }
+      } catch {
+        // Ignored; fall back to checking persisted profile responses
+      }
+    }
+
+    // Step 3b: Fall back to checking profile persistence if no active session was checked
+    if (!checkedActiveSession) {
+      isCompleted = isAssessmentPersistedInProfile(profile);
+    }
+
     if (!isCompleted) {
       if (currentGen === activeGenRef.current) {
         setGuardState({ missingUserId: false, missingProfile: false, incompleteAssessment: true });
@@ -101,9 +128,18 @@ export const MatchesPage = () => {
       if (currentGen !== activeGenRef.current) return;
 
       const rawMatches = response?.top_matches || (Array.isArray(response) ? response : []);
-      // Limit to max 3 recommendations
-      setMatches(rawMatches.slice(0, 3));
-      setRankingMetadata(response?.ranking_metadata || null);
+
+      // Filter to backend-confirmed eligible matches only
+      // Respect both is_eligible boolean and eligibility_status === 'eligible'
+      const eligibleMatches = rawMatches.filter((m) => {
+        if (!m) return false;
+        if (m.is_eligible === false) return false;
+        if (m.eligibility_status && m.eligibility_status !== 'eligible') return false;
+        return true;
+      });
+
+      // Render max 3 eligible recommendations preserving backend rank order
+      setMatches(eligibleMatches.slice(0, 3));
     } catch (err) {
       if (currentGen !== activeGenRef.current) return;
       setError(err?.message || 'Failed to calculate reciprocal matches. Please check network or backend server.');
@@ -112,7 +148,7 @@ export const MatchesPage = () => {
         setLoading(false);
       }
     }
-  }, [userId]);
+  }, [userId, assessmentId]);
 
   useEffect(() => {
     fetchMatches();
