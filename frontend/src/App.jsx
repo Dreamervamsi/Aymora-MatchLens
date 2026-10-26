@@ -5,7 +5,7 @@ import WelcomePage from './pages/WelcomePage';
 import InterviewPage from './pages/InterviewPage';
 import ProfileReviewPage from './pages/ProfileReviewPlaceholder';
 import AssessmentPage from './pages/AssessmentPage';
-import MatchesPlaceholder from './pages/MatchesPlaceholder';
+import MatchesPage from './pages/MatchesPage';
 
 export function App() {
   return (
@@ -17,7 +17,7 @@ export function App() {
             <Route path="/interview" element={<InterviewPage />} />
             <Route path="/profile/review" element={<ProfileReviewPage />} />
             <Route path="/assessment" element={<AssessmentPage />} />
-            <Route path="/matches" element={<MatchesPlaceholder />} />
+            <Route path="/matches" element={<MatchesPage />} />
           </Routes>
         </AppShell>
       </BrowserRouter>
