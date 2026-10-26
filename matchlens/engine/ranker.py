@@ -88,10 +88,14 @@ def rank_candidates(
             min_evidence_coverage=min_evidence_coverage,
         )
 
+        if match_res.eligibility_status == "ineligible":
+            continue
+
         if match_res.eligibility_status == "pending_information":
             pending_info_count += 1
             continue
-        elif not match_res.is_eligible:
+
+        if not match_res.is_eligible:
             continue
 
         eligible_count += 1

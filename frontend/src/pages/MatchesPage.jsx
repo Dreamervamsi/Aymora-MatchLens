@@ -13,15 +13,13 @@ import { Card, Button, Badge } from '../components/ui';
 import { useWorkflow } from '../context/WorkflowContext';
 import matchService from '../services/matchService';
 import profileService from '../services/profileService';
-import assessmentService from '../services/assessmentService';
-import { isAssessmentPersistedInProfile } from '../utils/assessmentUtils';
 import MatchCard from '../components/matches/MatchCard';
 
 /**
  * Real Reciprocal Matches Page replacing MatchesPlaceholder.
  */
 export const MatchesPage = () => {
-  const { userId, assessmentId } = useWorkflow();
+  const { userId } = useWorkflow();
 
   // Guard & Loading States
   const [loading, setLoading] = useState(true);
@@ -90,12 +88,11 @@ export const MatchesPage = () => {
 
       const rawMatches = response?.top_matches || (Array.isArray(response) ? response : []);
 
-      // Filter to backend-confirmed eligible matches only
-      // Respect both is_eligible boolean and eligibility_status === 'eligible'
+      // Filter to non-ineligible matches (ranked by mutual score)
       const eligibleMatches = rawMatches.filter((m) => {
         if (!m) return false;
         if (m.is_eligible === false) return false;
-        if (m.eligibility_status && m.eligibility_status !== 'eligible') return false;
+        if (m.eligibility_status === 'ineligible' || m.eligibility_status === 'pending_information') return false;
         return true;
       });
 

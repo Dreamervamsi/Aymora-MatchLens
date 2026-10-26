@@ -49,6 +49,8 @@ async def get_top_matches(
             requesting_user=requesting_profile,
             candidates=candidates,
             top_k=top_k,
+            include_low_coverage=True,
+            min_evidence_coverage=0.0,
         )
 
         return MatchRecommendationResponse(
