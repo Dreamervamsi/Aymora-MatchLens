@@ -21,16 +21,12 @@ class InterviewSettings(BaseModel):
             "age",
             "gender",
             "relationship_intent",
-            "smoking",
-            "drinking",
-            "wants_children",
         ],
         description="Core self-attribute fields required for profile completeness"
     )
     essential_partner_fields: List[str] = Field(
         default_factory=lambda: [
             "acceptable_genders",
-            "desired_intentions",
         ],
         description="Core partner preference fields required for profile completeness"
     )
