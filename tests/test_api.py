@@ -31,10 +31,20 @@ def test_openapi_docs(client):
     assert "openapi" in response.json()
 
 
+@patch("matchlens.ai.extractor.GroqProfileExtractor.extract_full_profile_batch")
 @patch("matchlens.ai.extractor.GroqProfileExtractor.extract_from_text")
 @patch("matchlens.ai.scenario_extractor.GroqScenarioExtractor.normalize_response")
-def test_full_e2e_workflow(mock_normalize, mock_extract, client):
+def test_full_e2e_workflow(mock_normalize, mock_extract, mock_batch_extract, client):
     user_id = "test_user_e2e"
+
+    # Seed another profile so matching produces a result
+    from matchlens.models.profile import UserProfile, UserAttributes, PartnerPreferences
+    repo = client.app.state.profile_repository
+    repo.save_profile(UserProfile(
+        user_id="other_match_user",
+        attributes=UserAttributes(age=26, gender="woman", relationship_intent="long_term", smoking="never", drinking="socially", wants_children="yes"),
+        expectations=PartnerPreferences(min_age=24, max_age=34, acceptable_genders=["man"], desired_intentions=["long_term"]),
+    ))
 
     # 1. Start Interview
     res = client.post("/api/v1/interview/start", json={"user_id": user_id})
@@ -44,7 +54,7 @@ def test_full_e2e_workflow(mock_normalize, mock_extract, client):
     assert session_id is not None
 
     # 2. Mock Groq interview extraction response providing essential self and partner attributes
-    mock_extract.return_value = ExtractedProfileUpdate(
+    sample_update = ExtractedProfileUpdate(
         confirmed_self_attributes=PartialUserAttributes(
             age=28,
             gender="man",
@@ -65,6 +75,8 @@ def test_full_e2e_workflow(mock_normalize, mock_extract, client):
             desired_wants_children=["yes"],
         ),
     )
+    mock_extract.return_value = sample_update
+    mock_batch_extract.return_value = sample_update
 
     turn_res1 = client.post(
         f"/api/v1/interview/{session_id}/turn",

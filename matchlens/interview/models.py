@@ -10,6 +10,7 @@ from matchlens.models.profile import UserProfile
 class InterviewStatus(str, Enum):
     ACTIVE = "active"
     AWAITING_CONFIRMATION = "awaiting_confirmation"
+    PROCESSING_EXTRACTION = "processing_extraction"
     READY_FOR_REVIEW = "ready_for_review"
     COMPLETED = "completed"
 

@@ -173,6 +173,22 @@ class PartialDealbreakers(BaseModel):
     blocked_user_ids: Optional[List[str]] = Field(default=None)
 
 
+class BatchExtractedProfile(BaseModel):
+    """
+    Top-level JSON payload for single batch extraction as specified by Groq prompt rules.
+    """
+    attributes: PartialUserAttributes = Field(default_factory=PartialUserAttributes)
+    expectations: PartialPartnerPreferences = Field(default_factory=PartialPartnerPreferences)
+    dealbreakers: PartialDealbreakers = Field(default_factory=PartialDealbreakers)
+
+    def to_extracted_profile_update(self) -> ExtractedProfileUpdate:
+        return ExtractedProfileUpdate(
+            confirmed_self_attributes=self.attributes,
+            confirmed_partner_preferences=self.expectations,
+            confirmed_dealbreakers=self.dealbreakers,
+        )
+
+
 class ConfirmationPrompt(BaseModel):
     """
     Clarification prompt generated when user statements are ambiguous or inferred with lower confidence.

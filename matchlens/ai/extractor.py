@@ -1,9 +1,9 @@
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from matchlens.ai.client import GroqClient
 from matchlens.ai.config import GroqSettings
-from matchlens.ai.models import ExtractedProfileUpdate
+from matchlens.ai.models import ExtractedProfileUpdate, BatchExtractedProfile
 from matchlens.models.scenario import ScenarioCatalog, ScenarioResponse
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,51 @@ CRITICAL CONTRACT RULES:
    - Strict non-negotiables / dealbreakers -> confirmed_dealbreakers
 """
 
+SYSTEM_BATCH_EXTRACTION_PROMPT = """
+You are a structured profile information extractor for MatchLens, a reciprocal relationship compatibility platform.
+
+Your only task is to analyze a completed conversational interview and extract explicitly supported information into the provided JSON schema.
+
+You are NOT a conversational assistant.
+
+Rules:
+1. Return exactly one valid JSON object.
+2. Do not return Markdown, explanations, comments, or code fences.
+3. Follow the supplied JSON schema exactly.
+4. Do not add unknown fields.
+5. Do not invent information that the user never stated.
+6. Separate the user's personal characteristics from their ideal partner's characteristics.
+7. Separate preferences from strict dealbreakers.
+8. Interpret answers in the context of their corresponding interview questions.
+9. Use all relevant interview answers to resolve context.
+10. If answers contradict each other and the intended value cannot be determined, leave the field unknown.
+11. Do not assume a missing preference means unrestricted.
+12. Do not assume strict dealbreakers are enabled.
+13. Do not infer gender from names, occupations, or interests.
+14. Do not infer smoking, drinking, or children preferences from unrelated statements.
+15. Normalize explicitly stated values into the exact enums supported by the backend:
+    - smoking: 'never', 'socially', 'regularly'
+    - drinking: 'never', 'socially', 'regularly'
+    - exercise: 'daily', 'weekly', 'rarely', 'never'
+    - wants_children: 'yes', 'no', 'open', 'maybe'
+    - relationship_intent: 'long_term', 'marriage', 'casual', 'friendship'
+    - communication_style: 'direct', 'gentle', 'expressive', 'analytical'
+    - conflict_resolution: 'discuss_immediately', 'cool_down_first', 'written_first'
+    - contact_frequency: 'frequent', 'daily_check_in', 'as_needed'
+16. Never create new enum values.
+17. For missing scalar fields, return null where the backend schema permits it.
+18. For missing lists, follow the existing schema's missing-value semantics. Do not treat an empty list as unrestricted unless that is explicitly what the user said and the schema represents it that way.
+19. Preserve explicit boolean false values.
+20. Extract strict dealbreakers only when the user clearly identifies something as mandatory or non-negotiable.
+21. Do not confuse a general preference with a hard eligibility constraint.
+22. Return JSON that can be validated by the existing Pydantic profile models.
+
+The output must contain three top-level objects:
+- attributes
+- expectations
+- dealbreakers
+"""
+
 
 class GroqProfileExtractor:
     """
@@ -72,34 +117,81 @@ class GroqProfileExtractor:
         self,
         user_input: str,
         context_prompt: Optional[str] = None,
+        expected_fields: Optional[list] = None,
+        permitted_values: Optional[list] = None,
     ) -> ExtractedProfileUpdate:
         """
         Extracts structured profile updates from user natural language input.
+        Performs at most one focused LLM extraction call or falls back to rule-based extraction on error/timeout.
+        Bypasses LLM for simple affirmative/negative/short answers.
         """
-        if not self.use_ai_extraction or self.client is None:
-            return self.rule_extractor.extract_from_text(user_input, context_prompt)
-
         if not user_input or not user_input.strip():
             return ExtractedProfileUpdate()
 
-        # Fast-path skip for brief non-informative responses that contain no attributes or preferences
         cleaned = user_input.strip().lower()
         non_informative = {"ok", "okay", "thanks", "thank you", "sure", "got it", "hello", "hi", "hey", "yes", "no", "skip", "next"}
         if cleaned in non_informative or len(cleaned) < 2:
-            logger.info(f"Skipping LLM extraction for non-informative short response: '{user_input}'")
-            return ExtractedProfileUpdate()
+            logger.info(f"Bypassing LLM extraction for non-informative or direct selection response: '{user_input}'")
+            return self.rule_extractor.extract_from_text(user_input, context_prompt)
+
+        if not self.use_ai_extraction or self.client is None:
+            return self.rule_extractor.extract_from_text(user_input, context_prompt)
 
         prompt = f"User Natural Language Input:\n\"{user_input}\""
         if context_prompt:
             prompt = f"Context / Question Asked:\n{context_prompt}\n\n{prompt}"
+        if expected_fields:
+            prompt += f"\nTarget Expected Fields: {expected_fields}"
+        if permitted_values:
+            prompt += f"\nPermitted Canonical Values: {permitted_values}"
 
-        extracted_update = await self.client.generate_structured(
-            prompt=prompt,
-            system_instruction=SYSTEM_EXTRACTION_PROMPT,
-            response_schema=ExtractedProfileUpdate,
-        )
+        try:
+            extracted_update = await self.client.generate_structured(
+                prompt=prompt,
+                system_instruction=SYSTEM_EXTRACTION_PROMPT,
+                response_schema=ExtractedProfileUpdate,
+            )
+            return extracted_update
+        except Exception as e:
+            logger.warning(f"Groq LLM extraction failed or timed out ({e}); falling back to RuleProfileExtractor.")
+            return self.rule_extractor.extract_from_text(user_input, context_prompt)
 
-        return extracted_update
+    async def extract_full_profile_batch(
+        self,
+        conversation_history: List[Any],
+    ) -> ExtractedProfileUpdate:
+        """
+        Executes a single structured batch profile extraction over the complete interview transcript.
+        If AI extraction is disabled, uninitialized, or fails/times out, falls back gracefully to RuleProfileExtractor.
+        """
+        # Build full transcript string in chronological order
+        transcript_lines = []
+        for msg in conversation_history:
+            role = getattr(msg, "role", "user")
+            content = getattr(msg, "content", str(msg))
+            if role in ("user", "assistant"):
+                transcript_lines.append(f"{role.capitalize()}: {content}")
+
+        full_transcript = "\n".join(transcript_lines) if transcript_lines else "No conversation transcript."
+
+        if not self.use_ai_extraction or self.client is None:
+            logger.info("AI extraction disabled or client uninitialized; using RuleProfileExtractor for full batch.")
+            return self.rule_extractor.extract_from_text(full_transcript)
+
+        prompt = f"Complete Conversational Interview Transcript:\n\n{full_transcript}"
+
+        try:
+            batch_result = await self.client.generate_structured(
+                prompt=prompt,
+                system_instruction=SYSTEM_BATCH_EXTRACTION_PROMPT,
+                response_schema=BatchExtractedProfile,
+            )
+            if batch_result:
+                return batch_result.to_extracted_profile_update()
+        except Exception as e:
+            logger.warning(f"Groq batch profile extraction failed or timed out ({e}); falling back to RuleProfileExtractor.")
+
+        return self.rule_extractor.extract_from_text(full_transcript)
 
     async def extract_scenario_response(
         self,

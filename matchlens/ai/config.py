@@ -10,11 +10,7 @@ class GroqSettings(BaseModel):
     """
     api_key_env_var: str = Field(default="GROQ_API_KEY", description="Environment variable name for Groq API key")
     model_name: str = Field(
-<<<<<<< HEAD
         default_factory=lambda: os.getenv("GROQ_MODEL_NAME", "llama-3.1-8b-instant"),
-=======
-        default_factory=lambda: os.getenv("GROQ_MODEL_NAME", "openai/gpt-oss-20b"),
->>>>>>> 2cf62f4 (fix unncessary llm calls)
         description="Groq model identifier",
     )
     timeout_seconds: float = Field(

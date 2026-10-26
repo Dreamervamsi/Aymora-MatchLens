@@ -126,13 +126,27 @@ class InterviewOrchestrator:
 
         # Check early finish intent
         if self.settings.allow_early_finish and is_early_finish_request(cleaned_input):
-            working_state.status = InterviewStatus.READY_FOR_REVIEW
+            working_state.status = InterviewStatus.PROCESSING_EXTRACTION
             working_state.pending_confirmations.clear()  # Discard unconfirmed proposals on finish
             working_state.progress = self._calculate_progress(working_state)
-            closing_msg = "Got it! We can stop here. Your draft profile is ready for your review."
+            closing_msg = "Got it! We can stop here. We are now organizing your responses into your profile."
             working_state.conversation_history.append(ChatMessage(role="assistant", content=closing_msg))
             self.state_manager.save_session(working_state)
-            return self._build_turn_result(working_state, closing_msg, newly_extracted=[], is_ready=True)
+
+            # Trigger single batch extraction
+            try:
+                extracted_update = await self.extractor.extract_full_profile_batch(working_state.conversation_history)
+                self._merge_extracted_data(working_state, extracted_update)
+                working_state.status = InterviewStatus.READY_FOR_REVIEW
+                review_msg = "Your draft profile is now ready for your review!"
+                working_state.conversation_history.append(ChatMessage(role="assistant", content=review_msg))
+                self.state_manager.save_session(working_state)
+                return self._build_turn_result(working_state, review_msg, newly_extracted=[], is_ready=True)
+            except Exception as e:
+                logger.error(f"Batch profile extraction failed on early finish: {e}")
+                working_state.status = InterviewStatus.READY_FOR_REVIEW
+                self.state_manager.save_session(working_state)
+                return self._build_turn_result(working_state, closing_msg, newly_extracted=[], is_ready=True)
 
         newly_extracted: List[str] = []
         is_confirmation_turn = False
@@ -161,14 +175,12 @@ class InterviewOrchestrator:
                         except Exception as e:
                             logger.warning(f"Failed to extract explicit correction during rejection: {e}")
             elif result_code == "ambiguous":
-                # User gave ambiguous/qualified response to confirmation prompt
-                # Do NOT change profile, ask for explicit confirmation again
                 reask_msg = f"I want to make sure I understand correctly. {working_state.pending_confirmations[0].clarification_question}"
                 working_state.conversation_history.append(ChatMessage(role="assistant", content=reask_msg))
                 self.state_manager.save_session(working_state)
                 return self._build_turn_result(working_state, reask_msg, newly_extracted=[])
 
-        # 2. General AI extraction (SKIP if this turn was exclusively resolving a confirmation)
+        # 2. Extract profile updates during turn
         if not is_confirmation_turn:
             context_prompt = f"Current interview topic: '{working_state.current_topic.value}'."
             try:
@@ -199,8 +211,14 @@ class InterviewOrchestrator:
         all_topics_covered = (working_state.current_topic == InterviewTopic.DEALBREAKERS and len(self._get_missing_fields_for_topic(working_state, InterviewTopic.DEALBREAKERS)) == 0)
 
         if max_turns_reached or (len(missing_essential) == 0 and all_topics_covered):
-            working_state.status = InterviewStatus.READY_FOR_REVIEW
+            working_state.status = InterviewStatus.PROCESSING_EXTRACTION
             working_state.pending_confirmations.clear()  # Clear pending proposals when review ready
+            try:
+                extracted_update = await self.extractor.extract_full_profile_batch(working_state.conversation_history)
+                self._merge_extracted_data(working_state, extracted_update)
+            except Exception as e:
+                logger.error(f"Batch profile extraction failed upon completion: {e}")
+            working_state.status = InterviewStatus.READY_FOR_REVIEW
 
         # 5. Question selection (selecting field from ACTIVE topic, preventing repeat questions)
         if working_state.pending_confirmations:
@@ -273,6 +291,30 @@ class InterviewOrchestrator:
             "is_ready_for_review": turn_result.is_ready_for_review,
         }
         yield {"type": "turn_complete", "data": final_data}
+
+    async def execute_batch_extraction(self, session_id: str) -> InterviewState:
+        """
+        Executes or retries single batch AI profile extraction for a given interview session.
+        Idempotent: updates draft profile and transitions status to READY_FOR_REVIEW upon success.
+        """
+        state = self.state_manager.get_session(session_id)
+        if not state:
+            raise ValueError(f"Session ID '{session_id}' not found.")
+
+        state.status = InterviewStatus.PROCESSING_EXTRACTION
+        self.state_manager.save_session(state)
+
+        try:
+            extracted_update = await self.extractor.extract_full_profile_batch(state.conversation_history)
+            self._merge_extracted_data(state, extracted_update)
+            state.status = InterviewStatus.READY_FOR_REVIEW
+        except Exception as e:
+            logger.error(f"Error during execute_batch_extraction for session {session_id}: {e}")
+            state.status = InterviewStatus.READY_FOR_REVIEW
+
+        state.progress = self._calculate_progress(state)
+        self.state_manager.save_session(state)
+        return state
 
     def confirm_draft_profile(self, session_id: str, mark_completed: bool = True) -> UserProfile:
         """

@@ -141,6 +141,34 @@ async def get_interview_state(
     )
 
 
+@router.post("/{session_id}/extract_batch", response_model=InterviewStateResponse)
+async def extract_batch_profile(
+    session_id: str,
+    orchestrator: InterviewOrchestrator = Depends(get_interview_orchestrator),
+) -> InterviewStateResponse:
+    """
+    Executes or retries single batch AI profile extraction over the interview session history.
+    """
+    try:
+        state = await orchestrator.execute_batch_extraction(session_id)
+        return InterviewStateResponse(
+            session_id=state.session_id,
+            user_id=state.user_id,
+            status=state.status,
+            current_topic=state.current_topic,
+            turn_count=state.turn_count,
+            progress=state.progress,
+            pending_confirmations=state.pending_confirmations,
+            conversation_history=state.conversation_history,
+            draft_profile=state.draft_profile,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in batch extraction endpoint: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to execute batch profile extraction.")
+
+
 @router.post("/{session_id}/confirm", response_model=UserProfile)
 async def confirm_interview_profile(
     session_id: str,
