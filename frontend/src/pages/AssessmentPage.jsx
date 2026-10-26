@@ -14,21 +14,7 @@ import {
   AssessmentCompletion,
 } from '../components/assessment';
 
-// Helper to verify that current assessment responses are persisted in confirmed profile
-const isAssessmentPersistedInProfile = (profile, currentAssessmentData) => {
-  if (!profile || !Array.isArray(profile.scenario_responses)) return false;
-  const expectedIds = currentAssessmentData?.selected_scenario_ids?.length
-    ? currentAssessmentData.selected_scenario_ids
-    : Object.keys(currentAssessmentData?.summary_data || {});
-
-  if (expectedIds.length === 0) {
-    return profile.scenario_responses.length > 0;
-  }
-
-  return expectedIds.every((id) =>
-    profile.scenario_responses.some((r) => r && (r.scenario_id === id || r.id === id))
-  );
-};
+import { isAssessmentPersistedInProfile } from '../utils/assessmentUtils';
 
 export const AssessmentPage = () => {
   const navigate = useNavigate();

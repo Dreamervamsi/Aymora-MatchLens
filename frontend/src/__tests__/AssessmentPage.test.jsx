@@ -739,14 +739,18 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
 
   it('22. Late responses from old sessions do not overwrite the current assessment', async () => {
     sessionStorage.setItem('matchlens_user_id', 'test_user_123');
+    sessionStorage.setItem('matchlens_assessment_id', 'assess_old');
 
     profileService.getProfile.mockResolvedValue(mockConfirmedProfile);
 
     let oldResolve;
-    assessmentService.getAssessmentState.mockImplementationOnce(() => {
-      return new Promise((resolve) => {
-        oldResolve = resolve;
-      });
+    assessmentService.getAssessmentState.mockImplementationOnce((id) => {
+      if (id === 'assess_old') {
+        return new Promise((resolve) => {
+          oldResolve = resolve;
+        });
+      }
+      return Promise.reject(new ApiError('Not found', 404));
     });
 
     assessmentService.startAssessment.mockResolvedValueOnce({
@@ -760,8 +764,12 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
 
     renderWithProviders(<AssessmentPage />);
 
-    // Click Start Assessment unconditionally when ready
-    const startBtn = await screen.findByRole('button', { name: 'Start Assessment' });
+    // Wait for old assessment restore attempt to be pending, then start new assessment
+    await waitFor(() => {
+      expect(assessmentService.getAssessmentState).toHaveBeenCalledWith('assess_old');
+    });
+
+    const startBtn = screen.getByRole('button', { name: 'Start Assessment' });
     fireEvent.click(startBtn);
 
     // Resolve old request late
