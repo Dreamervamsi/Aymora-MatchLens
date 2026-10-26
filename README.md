@@ -1,148 +1,172 @@
-# MatchLens — Core Reciprocal Compatibility Engine
+# MatchLens — AI-Assisted Reciprocal Matchmaking MVP
 
-MatchLens is a scenario-aware, reciprocal compatibility engine built as a proposed enhancement for Aymora's matchmaking platform.
+MatchLens is a scenario-aware, reciprocal compatibility web application and engine.
 
-Unlike traditional one-directional recommendation algorithms, MatchLens evaluates compatibility bidirectionally:
-1. How well **Candidate B** satisfies **User A's** preferences $S(A \rightarrow B)$.
-2. How well **User A** satisfies **Candidate B's** preferences $S(B \rightarrow A)$.
-3. A final reciprocal compatibility score combining both directional scores using a **geometric mean** $S_{\text{mutual}}(A,B) = \sqrt{S(A \rightarrow B) \times S(B \rightarrow A)}$.
+Unlike traditional one-directional recommendation algorithms, MatchLens evaluates relationship compatibility bidirectionally:
+1. **User A $\rightarrow$ Candidate B**: How well Candidate B satisfies User A's preferences and scenario expectations.
+2. **Candidate B $\rightarrow$ User A**: How well User A satisfies Candidate B's preferences and scenario expectations.
+3. **Reciprocal Compatibility Score**: Geometric mean combining both directional scores:
+   $$S_{\text{mutual}}(A,B) = \sqrt{S(A \rightarrow B) \times S(B \rightarrow A)}$$
 
 ---
 
-## Architecture Overview
+## Complete User Journey
 
-MatchLens is engineered using Python 3.11+, Pydantic v2, and pure deterministic comparison functions. It includes a Groq AI integration layer (`openai/gpt-oss-120b`) for structured natural language profile extraction and stateful interview orchestration.
+The MatchLens MVP guides users through a 4-step onboarding-to-matching workflow:
 
+1. **Step 1 — Welcome & Session Setup (`/`)**:
+   - Initializes user session identity (`userId`).
+   - Introduces the platform vision and reciprocal matchmaking architecture.
+2. **Step 2 — Conversational Interview Onboarding (`/interview`)**:
+   - Adaptive AI conversational onboarding powered by Groq LLM (`openai/gpt-oss-120b`).
+   - Collects personal attributes, lifestyle habits, partner preferences, and mandatory dealbreakers.
+   - Highlights extracted traits and handles confirmation prompts in natural dialogue.
+3. **Step 3 — Profile Review & Explicit Confirmation (`/profile/review`)**:
+   - Displays structured extracted traits, partner expectations, and dealbreakers.
+   - Explicit confirmation saves the verified profile to the backend repository (`POST /api/v1/interview/{session_id}/confirm`).
+4. **Step 4 — Scenario-Based Relationship Assessment (`/assessment`)**:
+   - Presents 3 real-world decision scenarios:
+     - `conflict_resolution_01`: Handling disagreement after a stressful day.
+     - `social_energy_01`: Weekend downtime preferences.
+     - `financial_planning_01`: Approach to joint budgeting and major expenses.
+   - Captures independent responses for **BOTH** self-behavior and partner-expectation per scenario.
+   - Reviews and confirms responses before attaching them to the user profile (`POST /api/v1/assessment/{assessment_id}/confirm`).
+5. **Step 5 — Reciprocal Match Discovery (`/matches`)**:
+   - Strictly verifies completed profile and scenario assessment prerequisites.
+   - Calls `GET /api/v1/matches/{user_id}?top_k=3`.
+   - Filters candidate pool against mandatory dealbreakers (age, gender, relationship intent, smoking, children, blocklist).
+   - Renders top eligible candidates with bidirectional scores, evidence coverage, and detailed compatibility breakdowns.
+
+---
+
+## Technology Stack
+
+### Frontend
+- **Framework**: React 19 + Vite
+- **Styling**: Tailwind CSS v4 + Lucide React Icons
+- **Routing**: React Router v7 (`BrowserRouter`)
+- **HTTP Client**: Native `fetch` API abstraction (`apiClient.js`)
+- **State & Persistence**: `WorkflowContext` + browser `sessionStorage` (resilient to page refreshes)
+- **Testing**: Vitest + React Testing Library + `@testing-library/jest-dom`
+
+### Backend
+- **Framework**: Python 3.11+ + FastAPI
+- **Validation**: Pydantic v2 schemas
+- **AI Integration**: Groq API client wrapper (`openai/gpt-oss-120b`)
+- **Data Persistence**: In-memory thread-safe repositories (`ProfileRepository`, `AssessmentStateManager`, `InterviewStateManager`)
+- **Matching Engine**: Deterministic reciprocal compatibility ranker with geometric mean scoring and mutual dealbreaker eligibility filtering
+
+---
+
+## Environment Variables & Configuration
+
+Create a `.env` file in the project root or frontend/backend directories based on `.env.example`:
+
+### Server-Side (Backend) Environment Variables
+```env
+# Required for Groq AI Profile Extraction & Conversational Interview
+GROQ_API_KEY="gsk_your_groq_api_key_here"
+
+# Optional Groq Settings
+GROQ_MODEL_NAME="openai/gpt-oss-120b"
+GROQ_TEMPERATURE="0.2"
+
+# API & CORS Settings
+CORS_ORIGINS='["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]'
 ```
-matchlens/
-├── config.py                 # System defaults, dimensions, and coverage thresholds
-├── models/
-│   ├── profile.py            # User profile schema (Attributes, Expectations, Dealbreakers, Weights)
-│   ├── scenario.py           # Scenario definitions, responses, and centralized ScenarioCatalog
-│   └── scoring.py            # Score contract models (MatchResult, DirectionalScore, EvidenceRecord)
-├── engine/
-│   ├── eligibility.py        # Three-state mutual mandatory filtering ('eligible', 'ineligible', 'pending_information')
-│   ├── dimension_scorers.py  # Pure deterministic dimension comparison functions & scenario blending
-│   ├── directional.py        # Directional weighted compatibility calculation & single-pass execution
-│   ├── reciprocal.py         # Geometric mean score aggregation & evidence summary synthesis
-│   └── ranker.py             # Candidate profile ranking with deterministic tie-breaking & deduplication
-├── ai/
-│   ├── client.py             # AsyncGroq API client wrapper with JSON schema enforcement & retry backoff
-│   ├── config.py             # GroqSettings (GROQ_API_KEY, model_name='openai/gpt-oss-120b')
-│   ├── extractor.py          # GroqProfileExtractor (Structured update extraction & scenario response evaluation)
-│   ├── models.py             # Extraction contracts (ExtractedProfileUpdate, ConfirmationPrompt)
-│   └── interview/            # Phase 5.2 Stateful Conversational Onboarding Package
-│       ├── config.py         # InterviewSettings (turn limits, topic turn caps, essential fields)
-│       ├── models.py         # InterviewState, InterviewStatus, ChatMessage, PendingConfirmation, InterviewTurnResult
-│       ├── orchestrator.py   # InterviewOrchestrator pipeline & process_turn atomic execution
-│       ├── question_bank.py  # Deterministic question bank per topic & missing field key
-│       ├── question_selector.py # Hybrid Question Selector (Groq AI dynamic wording + bank fallback)
-│       └── state_manager.py  # In-memory session registry & Pydantic JSON serialization
-└── synthetic/
-    └── profiles.py           # Realistic synthetic adult profiles for testing and demonstration
+
+### Client-Side (Frontend) Environment Variables
+`frontend/.env.example`:
+```env
+# API Base URL (defaults to http://localhost:8000 if omitted)
+VITE_API_BASE_URL="http://localhost:8000"
 ```
 
----
-
-## Phase 5.2 — AI Conversational Onboarding Interview Architecture
-
-MatchLens Phase 5.2 introduces a stateful, adaptive conversational onboarding interview that collects meaningful relationship information through natural dialogue:
-
-### 1. Interview Topics Progression
-The interview covers topics progressively across turns:
-- `BASIC_AND_INTENTION`: Age, gender, relationship intention.
-- `CORE_VALUES`: Core values, religion/beliefs, relationship priorities.
-- `LIFESTYLE`: Habits (smoking, drinking, exercise, children).
-- `COMMUNICATION`: Communication style, conflict resolution, contact frequency.
-- `PARTNER_EXPECTATIONS`: Expectations regarding partner age, habits, communication.
-- `DEALBREAKERS`: Explicit mandatory non-negotiables.
-
-### 2. Confirmation Contract & Ambiguity Handling
-- **Explicit vs. Inferred**: Unambiguous statements directly update confirmed profile fields (`confirmed_self_attributes`, `confirmed_partner_preferences`).
-- **Unconfirmed Proposals**: Inferred or ambiguous traits are placed in `confirmations_needed` and held in `pending_confirmations`. They are **NEVER** placed into confirmed profile attributes until the user confirms them.
-- **Explicit Yes/No & Ambiguity Resolution**: Affirmative/negative responses are parsed with regex word boundaries. Ambiguous, qualified, or contradictory answers (*"maybe"*, *"yes and no"*) remain pending and re-ask the clarification question.
-
-### 3. Interview Lifecycle States (`InterviewStatus`)
-- **`ACTIVE`**: Ongoing conversation moving through topics.
-- **`AWAITING_CONFIRMATION`**: Paused to clarify an ambiguous inference with the user.
-- **`READY_FOR_REVIEW`**: Triggered when essential fields are satisfied, topic turn limit reached, or user requests early finish (*"/finish"*, *"done"*).
-- **`COMPLETED`**: Reserved for when the user explicitly reviews and confirms their draft profile (`confirm_draft_profile()`). Incomplete early-finished profiles cannot be finalized until essential fields are satisfied.
+> **Security Note**: The `GROQ_API_KEY` is strictly server-side and is **never** exposed in frontend code or Vite client bundles.
 
 ---
 
-## Groq Setup & Configuration
+## Local Development & Startup Instructions
 
-Configure the Groq API key in your environment variable:
-
+### 1. Clone & Setup Backend
 ```bash
-export GROQ_API_KEY="your-groq-api-key-here"
-```
+# Navigate to repository root
+cd /path/to/Aymora-MatchLens
 
-The system defaults to `openai/gpt-oss-120b` via Groq's high-speed inference engine with JSON schema enforcement, automatic retry backoff, and local Pydantic validation.
-
----
-
-## Quickstart & Demonstration
-
-### 1. Install Dependencies
-```bash
+# Create virtual environment and activate
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
-```
 
-### 2. Run Automated Test Suite
+# Install package in editable mode with dependencies
+pip install -e .
+
+# Set Groq API Key
+export GROQ_API_KEY="your_groq_api_key"
+
+# Run FastAPI Server (Single Worker required for in-memory repositories)
+uvicorn matchlens.api.app:app --reload --port 8000
+```
+- Backend API will be available at: `http://localhost:8000`
+- Interactive Swagger UI: `http://localhost:8000/docs`
+
+### 2. Setup & Start Frontend
 ```bash
+# Navigate to frontend directory
+cd /path/to/Aymora-MatchLens/frontend
+
+# Install Node dependencies
+npm install
+
+# Start Vite Development Server
+npm run dev
+```
+- Frontend application will be available at: `http://localhost:5173`
+
+---
+
+## Automated Testing Commands
+
+### Backend Pytest Suite
+```bash
+# Run all backend unit & integration tests from repository root
 pytest
 ```
 
-### 3. Run Matching Engine Demonstration
+### Frontend Vitest Suite & Linting
 ```bash
-python examples/demo.py
-```
+cd frontend
 
-### 4. Run AI Conversational Interview Interactive CLI Demo
-```bash
-python examples/interview_demo.py
+# Run frontend unit & component integration tests
+npm run test
+
+# Run ESLint check
+npm run lint
+
+# Verify production Vite build
+npm run build
 ```
 
 ---
 
-## Phase 6 — FastAPI Backend API
+## In-Memory Repository Assumptions & Demo Data
 
-MatchLens Phase 6 provides a RESTful FastAPI backend server under `/api/v1` connecting the onboarding interview, scenario assessment, profile management, and reciprocal matching engine:
+- **Single-Worker Requirement**: The MVP backend uses thread-safe in-memory session repositories (`ProfileRepository`, `AssessmentStateManager`, `InterviewStateManager`). When running the API server, execute Uvicorn with a **single worker process** (`--workers 1` or default `uvicorn`) so all endpoints access the same repository instance.
+- **Backend Restarts**: Restarting the FastAPI backend process clears in-memory state. Users can re-run the interview/assessment onboarding flow in under 2 minutes.
+- **Demonstration Seed Candidates**: The reciprocal matching engine automatically loads a set of pre-configured synthetic candidate profiles (`matchlens/synthetic/profiles.py`) alongside any confirmed profiles in the repository, ensuring realistic reciprocal matching demonstrations out-of-the-box.
+- **No Fabricated Data**: The frontend renders only actual backend recommendations and eligible profiles without inventing fake profile photos, bios, or swipe metrics.
 
-### 1. Running the API Server
-```bash
-uvicorn matchlens.api.app:app --reload --port 8000
-```
+---
 
-### 2. Interactive API Documentation (Swagger / OpenAPI)
-Once running, explore and test endpoints directly via Swagger UI:
-- **Swagger Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc Documentation**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-- **OpenAPI JSON Spec**: [http://localhost:8000/api/v1/openapi.json](http://localhost:8000/api/v1/openapi.json)
+## Deployment Considerations
 
-### 3. Key Endpoint Groups (`/api/v1`)
-- **`GET /api/v1/health`**: Health check and API version.
-- **`POST /api/v1/interview/start`**: Start conversational onboarding interview session.
-- **`POST /api/v1/interview/{session_id}/turn`**: Submit conversational user input.
-- **`GET /api/v1/interview/{session_id}`**: Retrieve ongoing interview state.
-- **`POST /api/v1/interview/{session_id}/confirm`**: Confirm draft profile and store in repository.
-- **`POST /api/v1/assessment/start`**: Start scenario-based relationship assessment.
-- **`POST /api/v1/assessment/{assessment_id}/turn`**: Submit scenario self behavior or partner expectation.
-- **`POST /api/v1/assessment/{assessment_id}/correct`**: Correct a scenario choice.
-- **`GET /api/v1/assessment/{assessment_id}`**: Retrieve assessment progress and draft choices.
-- **`POST /api/v1/assessment/{assessment_id}/confirm`**: Finalize assessment and attach canonical responses to user profile.
-- **`GET /api/v1/profiles/{user_id}`**: Retrieve confirmed user profile.
-- **`GET /api/v1/matches/{user_id}?top_k=3`**: Calculate top 3 reciprocal matches for a confirmed profile.
+- **Single Process Hosting**: Deploy backend as a single container or server instance (e.g. Render, Railway, AWS ECS) using a single Uvicorn worker process.
+- **SPA Routing Fallback**: Configure web host (e.g. Vercel, Netlify, Nginx) to redirect all non-file route requests to `/index.html` for client-side React Router navigation.
+- **Production API Base URL**: Set `VITE_API_BASE_URL` in frontend build environment to point to the deployed FastAPI backend HTTPS domain.
 
+---
 
-### 1. Directional Weighted Compatibility
-$$S(A \rightarrow B) = \frac{\sum_{i \in \text{active}} w_{A,i} \cdot s_i(A,B)}{\sum_{i \in \text{active}} w_{A,i}}$$
+## Known MVP Limitations
 
-### 2. Reciprocal Geometric Mean Compatibility
-$$S_{\text{mutual}}(A,B) = \sqrt{S(A \rightarrow B) \times S(B \rightarrow A)}$$
-
-### 3. Evidence Coverage Score
-$$\text{evidence\_coverage} = \left(\frac{W_{\text{active}}}{W_{\text{total}}}\right) \times 100\%$$
+- **In-Memory Storage**: Data persistence resets upon server restart (by design for this challenge MVP; no SQL/Redis databases required).
+- **Fixed Scenario Catalog**: The current assessment uses 3 core canonical relationship scenarios (`conflict_resolution_01`, `social_energy_01`, `financial_planning_01`).
+- **No Authentication**: User sessions are identified via lightweight `userId` tokens stored in `sessionStorage` rather than full OAuth/JWT user authentication.

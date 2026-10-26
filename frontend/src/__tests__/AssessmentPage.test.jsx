@@ -212,7 +212,8 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
       expect(screen.getByText('Perspective A — Your Behavior')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Discuss Immediately'));
+    const optionText = screen.getByText('Discuss Immediately');
+    fireEvent.click(optionText.closest('.cursor-pointer'));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Choice & Proceed' }));
 
     await waitFor(() => {
@@ -247,7 +248,8 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
       expect(screen.getByText('Perspective B — Your Ideal Partner')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Cool Down First'));
+    const optionText = screen.getByText('Cool Down First');
+    fireEvent.click(optionText.closest('.cursor-pointer'));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Choice & Proceed' }));
 
     await waitFor(() => {
@@ -274,7 +276,8 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
       expect(screen.getByText('Perspective A — Your Behavior')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Discuss Immediately'));
+    const optionSelf = screen.getByText('Discuss Immediately');
+    fireEvent.click(optionSelf.closest('.cursor-pointer'));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Choice & Proceed' }));
 
     await waitFor(() => {
@@ -288,7 +291,8 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
       current_stage: 'self_behavior',
     });
 
-    fireEvent.click(screen.getByText('Cool Down First'));
+    const optionPartner = screen.getByText('Cool Down First');
+    fireEvent.click(optionPartner.closest('.cursor-pointer'));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Choice & Proceed' }));
 
     await waitFor(() => {
@@ -316,7 +320,8 @@ describe('AssessmentPage Component — Phase 7.4 Requirements', () => {
       expect(screen.getByText('Discuss Immediately')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Discuss Immediately'));
+    const optionText = screen.getByText('Discuss Immediately');
+    fireEvent.click(optionText.closest('.cursor-pointer'));
     const submitBtn = screen.getByRole('button', { name: 'Submit Choice & Proceed' });
 
     fireEvent.click(submitBtn);
