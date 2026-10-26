@@ -76,7 +76,7 @@ async def test_successful_structured_extraction():
 
     settings = GroqSettings()
     client = GroqClient(settings=settings, client=mock_async_groq)
-    extractor = GroqProfileExtractor(settings=settings, client=client)
+    extractor = GroqProfileExtractor(settings=settings, client=client, use_ai_extraction=True)
 
     user_text = "I am a 28yo man, non-smoker, into hiking and reading. Looking for a non-smoking woman 24-32. Smoking is a dealbreaker."
     result = await extractor.extract_from_text(user_text)
@@ -123,7 +123,7 @@ async def test_ambiguous_inference_awaiting_confirmation():
     )
 
     client = GroqClient(settings=GroqSettings(), client=mock_async_groq)
-    extractor = GroqProfileExtractor(client=client)
+    extractor = GroqProfileExtractor(client=client, use_ai_extraction=True)
 
     result = await extractor.extract_from_text("I occasionally party on weekends.")
 
@@ -340,3 +340,28 @@ async def test_unconfirmed_inference_in_confirmed_fields_contract_rejection():
 
     with pytest.raises(ValueError, match="marked as requiring confirmation"):
         ExtractedProfileUpdate.model_validate(invalid_payload)
+
+
+@pytest.mark.anyio
+async def test_stream_completion():
+    """Test async streaming completion method yielding chunks."""
+    async def mock_chunk_generator():
+        chunks = ["Hello", " ", "world", "!"]
+        for text in chunks:
+            mock_choice = MagicMock()
+            mock_choice.delta.content = text
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [mock_choice]
+            yield mock_chunk
+
+    mock_async_groq = MagicMock()
+    mock_async_groq.chat.completions.create = AsyncMock(return_value=mock_chunk_generator())
+
+    settings = GroqSettings()
+    client = GroqClient(settings=settings, client=mock_async_groq)
+
+    collected = []
+    async for token in client.stream_completion(prompt="Hello"):
+        collected.append(token)
+
+    assert "".join(collected) == "Hello world!"

@@ -1,13 +1,13 @@
 # MatchLens Groq AI Integration Documentation
 
 ## Overview
-The `matchlens.ai` package provides a structured, asynchronous natural-language extraction pipeline using Groq (`openai/gpt-oss-120b`). It translates unstructured conversational onboarding input into validated MatchLens Pydantic models while respecting missing data (`None`) and flagging ambiguous statements for confirmation.
+The `matchlens.ai` package provides a structured, asynchronous natural-language extraction pipeline using Groq (`openai/gpt-oss-20b`). It translates unstructured conversational onboarding input into validated MatchLens Pydantic models while respecting missing data (`None`) and flagging ambiguous statements for confirmation.
 
 ---
 
 ## Key Modules & Classes
 
-- `GroqSettings`: Configures environment variable (`GROQ_API_KEY`), model (`openai/gpt-oss-120b`), timeout (`timeout_seconds`), retries (`max_retries`), and temperature (`temperature`).
+- `GroqSettings`: Configures environment variable (`GROQ_API_KEY`), model (`openai/gpt-oss-20b`), timeout (`timeout_seconds`), retries (`max_retries`), temperature (`temperature`), and reasoning effort (`reasoning_effort`).
 - `GroqClient`: Async Groq SDK wrapper supporting provider-side `json_schema` response format (with automatic fallback to `json_object`), fast failure on permanent 4xx errors, transient backoff retries, and strict local Pydantic validation.
 - `GroqProfileExtractor`: Core extraction service that turns natural language into `ExtractedProfileUpdate` objects or scenario-bound `ScenarioResponse` objects.
 - `ExtractedProfileUpdate`: Structured contract explicitly separating confirmed facts from proposed inferences:
@@ -47,7 +47,7 @@ from matchlens.ai import GroqProfileExtractor, GroqSettings
 from matchlens.models import UserProfile
 
 async def process_user_onboarding_turn():
-    settings = GroqSettings(model_name="openai/gpt-oss-120b")
+    settings = GroqSettings(model_name="openai/gpt-oss-20b")
     extractor = GroqProfileExtractor(settings=settings)
 
     user_answer = (

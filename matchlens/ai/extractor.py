@@ -45,15 +45,20 @@ CRITICAL CONTRACT RULES:
 
 class GroqProfileExtractor:
     """
-    Service for extracting structured MatchLens profile updates from natural language onboarding responses using Groq.
+    Service for extracting structured MatchLens profile updates from natural language onboarding responses using Groq,
+    with deterministic RuleProfileExtractor fallback or default.
     """
 
     def __init__(
         self,
         settings: Optional[GroqSettings] = None,
         client: Optional[GroqClient] = None,
+        use_ai_extraction: bool = False,
     ):
+        from matchlens.interview.rule_extractor import RuleProfileExtractor
         self.settings = settings or GroqSettings()
+        self.use_ai_extraction = use_ai_extraction
+        self.rule_extractor = RuleProfileExtractor()
         if client is not None:
             self.client = client
         else:
@@ -70,16 +75,19 @@ class GroqProfileExtractor:
     ) -> ExtractedProfileUpdate:
         """
         Extracts structured profile updates from user natural language input.
-
-        Args:
-            user_input: The natural language string provided by the user.
-            context_prompt: Optional contextual information (e.g., question asked or active scenario details).
-
-        Returns:
-            ExtractedProfileUpdate object containing validated structured extraction data.
         """
-        if self.client is None:
-            raise ValueError("Groq client is uninitialized (missing API key).")
+        if not self.use_ai_extraction or self.client is None:
+            return self.rule_extractor.extract_from_text(user_input, context_prompt)
+
+        if not user_input or not user_input.strip():
+            return ExtractedProfileUpdate()
+
+        # Fast-path skip for brief non-informative responses that contain no attributes or preferences
+        cleaned = user_input.strip().lower()
+        non_informative = {"ok", "okay", "thanks", "thank you", "sure", "got it", "hello", "hi", "hey", "yes", "no", "skip", "next"}
+        if cleaned in non_informative or len(cleaned) < 2:
+            logger.info(f"Skipping LLM extraction for non-informative short response: '{user_input}'")
+            return ExtractedProfileUpdate()
 
         prompt = f"User Natural Language Input:\n\"{user_input}\""
         if context_prompt:

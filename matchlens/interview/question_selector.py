@@ -76,6 +76,11 @@ class HybridQuestionSelector:
         # Obtain deterministic fallback first
         fallback_id, fallback_text = get_bank_question(target_topic, missing_field_key)
 
+        # Fast-path: If fallback question exists and client is not required or we want fast template selection,
+        # use deterministic question bank directly to reduce serial Groq LLM latency.
+        if fallback_id and fallback_text and not fallback_id.startswith("default."):
+            return fallback_id, fallback_text
+
         if self.client is None:
             return fallback_id, fallback_text
 

@@ -206,42 +206,129 @@ export const InterviewPage = () => {
       );
     }
 
+    // Create placeholder assistant message for streaming tokens into
+    const assistantMsgId = `asst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const assistantMsgPlaceholder = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      newlyExtracted: [],
+      pendingConfirmations: [],
+    };
+
+    let streamStarted = false;
+    let streamCompleted = false;
+
     try {
-      const turnRes = await interviewService.processTurn(currentSessionId, userText);
+      if (typeof interviewService.processTurnStream === 'function') {
+        await interviewService.processTurnStream(
+          currentSessionId,
+          userText,
+          (delta) => {
+            if (
+              generationTokenRef.current !== activeToken ||
+              activeSessionIdRef.current !== currentSessionId ||
+              activeRequestIdRef.current !== requestId
+            ) {
+              return;
+            }
 
-      if (
-        generationTokenRef.current !== activeToken ||
-        activeSessionIdRef.current !== currentSessionId ||
-        activeRequestIdRef.current !== requestId
-      ) {
-        return;
+            if (!streamStarted) {
+              streamStarted = true;
+              setMessages((prev) => [
+                ...prev.map((msg) => (msg.id === userMsgId ? { ...msg, status: 'delivered' } : msg)),
+                assistantMsgPlaceholder,
+              ]);
+            }
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId ? { ...msg, content: msg.content + delta } : msg
+              )
+            );
+          },
+          (turnRes) => {
+            streamCompleted = true;
+            if (
+              generationTokenRef.current !== activeToken ||
+              activeSessionIdRef.current !== currentSessionId ||
+              activeRequestIdRef.current !== requestId
+            ) {
+              return;
+            }
+
+            setStatus(turnRes.interview_status);
+            setCurrentTopic(turnRes.current_topic);
+            setTurnCount((prev) => prev + 1);
+            setPendingConfirmations(turnRes.pending_confirmations || []);
+            setRejectionTarget(null);
+
+            if (turnRes.progress) {
+              setProgressPct(turnRes.progress.percentage || 0);
+              setCompletedTopics(turnRes.progress.completed_topics || []);
+            }
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      content: turnRes.assistant_message || msg.content,
+                      newlyExtracted: turnRes.newly_extracted_fields || [],
+                      pendingConfirmations: turnRes.pending_confirmations || [],
+                    }
+                  : msg
+              )
+            );
+          },
+          (streamErr) => {
+            throw streamErr;
+          }
+        );
       }
 
-      setMessages((prev) =>
-        prev.map((msg) => (msg.id === userMsgId ? { ...msg, status: 'delivered' } : msg))
-      );
+      // If streaming didn't handle completion (e.g., processTurnStream was a dummy mock or fallback needed)
+      if (!streamCompleted) {
+        const turnRes = await interviewService.processTurn(currentSessionId, userText);
+        if (
+          generationTokenRef.current !== activeToken ||
+          activeSessionIdRef.current !== currentSessionId ||
+          activeRequestIdRef.current !== requestId
+        ) {
+          return;
+        }
 
-      setStatus(turnRes.interview_status);
-      setCurrentTopic(turnRes.current_topic);
-      setTurnCount((prev) => prev + 1);
-      setPendingConfirmations(turnRes.pending_confirmations || []);
-      setRejectionTarget(null);
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === userMsgId ? { ...msg, status: 'delivered' } : msg))
+        );
 
-      if (turnRes.progress) {
-        setProgressPct(turnRes.progress.percentage || 0);
-        setCompletedTopics(turnRes.progress.completed_topics || []);
+        setStatus(turnRes.interview_status);
+        setCurrentTopic(turnRes.current_topic);
+        setTurnCount((prev) => prev + 1);
+        setPendingConfirmations(turnRes.pending_confirmations || []);
+        setRejectionTarget(null);
+
+        if (turnRes.progress) {
+          setProgressPct(turnRes.progress.percentage || 0);
+          setCompletedTopics(turnRes.progress.completed_topics || []);
+        }
+
+        const assistantMsg = {
+          id: `asst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          role: 'assistant',
+          content: turnRes.assistant_message,
+          timestamp: new Date().toISOString(),
+          newlyExtracted: turnRes.newly_extracted_fields || [],
+          pendingConfirmations: turnRes.pending_confirmations || [],
+        };
+
+        setMessages((prev) =>
+          streamStarted
+            ? prev.map((msg) => (msg.id === assistantMsgId ? assistantMsg : msg))
+            : [...prev, assistantMsg]
+        );
       }
-
-      const assistantMsg = {
-        id: `asst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        role: 'assistant',
-        content: turnRes.assistant_message,
-        timestamp: new Date().toISOString(),
-        newlyExtracted: turnRes.newly_extracted_fields || [],
-        pendingConfirmations: turnRes.pending_confirmations || [],
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
       if (
         generationTokenRef.current !== activeToken ||

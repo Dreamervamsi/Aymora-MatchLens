@@ -11,6 +11,7 @@ vi.mock('../services/interviewService', () => ({
     getInterviewState: vi.fn(),
     startInterview: vi.fn(),
     processTurn: vi.fn(),
+    processTurnStream: vi.fn(),
     confirmProfile: vi.fn(),
   },
 }));
@@ -583,11 +584,18 @@ describe('InterviewPage Component', () => {
       pending_confirmations: [],
     });
 
-    let resolveTurn;
-    interviewService.processTurn.mockImplementationOnce(() => {
-      return new Promise((resolve) => {
-        resolveTurn = resolve;
+    interviewService.processTurnStream.mockImplementationOnce((sessId, text, onDelta, onComplete) => {
+      onDelta('Res');
+      onComplete({
+        session_id: 'sess_double_send',
+        assistant_message: 'Response',
+        interview_status: 'active',
+        current_topic: 'basic_and_intention',
+        progress: { percentage: 15, completed_topics: [] },
+        newly_extracted_fields: [],
+        pending_confirmations: [],
       });
+      return Promise.resolve();
     });
 
     renderWithProviders(<InterviewPage />);
@@ -603,17 +611,7 @@ describe('InterviewPage Component', () => {
     fireEvent.click(submitBtn);
     fireEvent.click(submitBtn);
 
-    expect(interviewService.processTurn).toHaveBeenCalledTimes(1);
-
-    resolveTurn({
-      session_id: 'sess_double_send',
-      assistant_message: 'Response',
-      interview_status: 'active',
-      current_topic: 'basic_and_intention',
-      progress: { percentage: 15, completed_topics: [] },
-      newly_extracted_fields: [],
-      pending_confirmations: [],
-    });
+    expect(interviewService.processTurnStream).toHaveBeenCalledTimes(1);
   });
 
   it('ensures ready-for-review state does not automatically confirm the profile', async () => {

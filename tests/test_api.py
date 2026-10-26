@@ -274,3 +274,24 @@ def test_premature_interview_confirm(client):
     confirm_res = client.post(f"/api/v1/interview/{session_id}/confirm")
     assert confirm_res.status_code == 400
     assert "ready_for_review" in confirm_res.json()["detail"].lower()
+
+
+@patch("matchlens.ai.extractor.GroqProfileExtractor.extract_from_text")
+def test_interview_turn_stream_endpoint(mock_extract, client):
+    start_res = client.post("/api/v1/interview/start", json={"user_id": "stream_user"})
+    session_id = start_res.json()["session_id"]
+
+    mock_extract.return_value = ExtractedProfileUpdate(
+        confirmed_self_attributes=PartialUserAttributes(age=25),
+        confirmed_partner_preferences=PartialPartnerPreferences(min_age=20),
+    )
+
+    res = client.post(
+        f"/api/v1/interview/{session_id}/turn/stream",
+        json={"user_message": "I am 25 years old."},
+    )
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers["content-type"]
+    body = res.text
+    assert "content_delta" in body
+    assert "turn_complete" in body

@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Optional, Type, TypeVar
+from typing import Any, AsyncGenerator, Dict, Optional, Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from groq import (
@@ -120,6 +120,59 @@ class GroqClient:
             raise last_error
         raise GroqAPIError(f"Failed after {self.settings.max_retries + 1} attempts: {last_error}")
 
+    async def stream_completion(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        messages: Optional[list[Dict[str, str]]] = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Streams completion tokens as text from Groq API.
+        """
+        if messages is None:
+            current_messages = []
+            if system_instruction:
+                current_messages.append({"role": "system", "content": system_instruction})
+            current_messages.append({"role": "user", "content": prompt})
+        else:
+            current_messages = messages
+
+        kwargs: Dict[str, Any] = {
+            "model": self.settings.model_name,
+            "messages": current_messages,
+            "temperature": self.settings.temperature,
+            "stream": True,
+        }
+        if self.settings.max_tokens:
+            kwargs["max_tokens"] = self.settings.max_tokens
+        if self.settings.reasoning_effort:
+            kwargs["reasoning_effort"] = self.settings.reasoning_effort
+
+        try:
+            stream = await asyncio.wait_for(
+                self._client.chat.completions.create(**kwargs),
+                timeout=self.settings.timeout_seconds,
+            )
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+
+        except asyncio.TimeoutError:
+            raise GroqTimeoutError(
+                f"Groq streaming request timed out after {self.settings.timeout_seconds} seconds."
+            )
+        except PERMANENT_ERROR_CLASSES as e:
+            raise GroqPermanentAPIError(f"Permanent Groq API error ({e.__class__.__name__}): {str(e)}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            status = getattr(e, "status_code", None)
+            if status and 400 <= status < 500 and status != 429:
+                raise GroqPermanentAPIError(f"Permanent Groq API HTTP {status} error: {str(e)}")
+            raise GroqAPIError(f"Transient Groq API communication error: {str(e)}")
+        except Exception as e:
+            if isinstance(e, (GroqTimeoutError, GroqAPIError)):
+                raise e
+            raise GroqAPIError(f"Unexpected error streaming from Groq API: {str(e)}")
+
     async def _call_groq_with_timeout(
         self,
         messages: list[Dict[str, str]],
@@ -148,13 +201,19 @@ class GroqClient:
 
         for resp_format in response_formats:
             try:
+                kwargs: Dict[str, Any] = {
+                    "model": self.settings.model_name,
+                    "messages": messages,
+                    "temperature": self.settings.temperature,
+                    "response_format": resp_format,
+                }
+                if self.settings.max_tokens:
+                    kwargs["max_tokens"] = self.settings.max_tokens
+                if self.settings.reasoning_effort:
+                    kwargs["reasoning_effort"] = self.settings.reasoning_effort
+
                 response = await asyncio.wait_for(
-                    self._client.chat.completions.create(
-                        model=self.settings.model_name,
-                        messages=messages,
-                        temperature=self.settings.temperature,
-                        response_format=resp_format,
-                    ),
+                    self._client.chat.completions.create(**kwargs),
                     timeout=self.settings.timeout_seconds,
                 )
 

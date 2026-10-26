@@ -1,4 +1,4 @@
-from typing import Generic, List, Literal, Optional, Set, TypeVar
+from typing import Any, Generic, List, Literal, Optional, Set, TypeVar
 from pydantic import BaseModel, Field, field_validator, model_validator
 from matchlens.models.scenario import ScenarioResponse
 
@@ -193,18 +193,36 @@ class ExtractedProfileUpdate(BaseModel):
     Structured extraction contract returned by Groq AI integration layer.
     Explicitly separates confirmed user statements from unconfirmed inferences requiring user verification.
     """
-    confirmed_self_attributes: PartialUserAttributes = Field(
+    confirmed_self_attributes: Optional[PartialUserAttributes] = Field(
         default_factory=PartialUserAttributes,
         description="Attributes explicitly and unambiguously stated by the user"
     )
-    confirmed_partner_preferences: PartialPartnerPreferences = Field(
+    confirmed_partner_preferences: Optional[PartialPartnerPreferences] = Field(
         default_factory=PartialPartnerPreferences,
         description="Partner preferences explicitly and unambiguously stated by the user"
     )
-    confirmed_dealbreakers: PartialDealbreakers = Field(
+    confirmed_dealbreakers: Optional[PartialDealbreakers] = Field(
         default_factory=PartialDealbreakers,
         description="Hard dealbreakers explicitly stated by the user"
     )
+
+    @field_validator(
+        "confirmed_self_attributes",
+        "confirmed_partner_preferences",
+        "confirmed_dealbreakers",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_none_to_default(cls, value: Any, info) -> Any:
+        if value is None:
+            if info.field_name == "confirmed_self_attributes":
+                return PartialUserAttributes()
+            elif info.field_name == "confirmed_partner_preferences":
+                return PartialPartnerPreferences()
+            elif info.field_name == "confirmed_dealbreakers":
+                return PartialDealbreakers()
+            return {}
+        return value
     scenarios: List[ScenarioResponse] = Field(
         default_factory=list,
         description="Validated scenario responses extracted from input"

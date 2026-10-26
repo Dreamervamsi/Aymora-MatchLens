@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 5.2 introduces a stateful, adaptive conversational onboarding interview engine for MatchLens. The orchestrator engages users in natural dialogue, extracts structured compatibility attributes via Groq AI (`openai/gpt-oss-120b`), isolates unconfirmed inferences, and generates a review-ready `UserProfile`.
+Phase 5.2 introduces a stateful, adaptive conversational onboarding interview engine for MatchLens. The orchestrator engages users in natural dialogue, extracts structured compatibility attributes via Groq AI (`openai/gpt-oss-20b`), isolates unconfirmed inferences, and generates a review-ready `UserProfile`.
 
 ---
 

@@ -96,6 +96,7 @@ async function request(endpoint, options = {}) {
 }
 
 export const apiClient = {
+  baseURL: `${BASE_URL}${API_V1_PREFIX}`,
   get: (endpoint, options = {}) => request(endpoint, { ...options, method: 'GET' }),
   post: (endpoint, body, options = {}) => request(endpoint, { ...options, method: 'POST', body }),
   patch: (endpoint, body, options = {}) => request(endpoint, { ...options, method: 'PATCH', body }),

@@ -2,8 +2,10 @@
 Interview endpoints router.
 """
 
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from matchlens.api.dependencies import get_interview_orchestrator, get_profile_repository
 from matchlens.api.repository import ProfileRepository
@@ -80,6 +82,38 @@ async def process_interview_turn(
     except Exception as e:
         logger.error(f"Unexpected error in interview turn: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while processing the turn.")
+
+
+@router.post("/{session_id}/turn/stream")
+async def process_interview_turn_stream(
+    session_id: str,
+    payload: InterviewTurnRequest,
+    orchestrator: InterviewOrchestrator = Depends(get_interview_orchestrator),
+):
+    """
+    Processes a conversational turn and streams assistant response tokens to frontend via Server-Sent Events (SSE).
+    """
+    try:
+        async def event_generator():
+            async for event in orchestrator.process_turn_stream(
+                session_id=session_id,
+                user_message=payload.user_message,
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND if "not found" in str(ve).lower() else status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error in interview stream endpoint: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Streaming processing error.")
 
 
 @router.get("/{session_id}", response_model=InterviewStateResponse)

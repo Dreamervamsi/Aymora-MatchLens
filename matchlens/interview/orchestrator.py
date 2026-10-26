@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
 from copy import deepcopy
 
 from matchlens.ai.extractor import GroqProfileExtractor
@@ -145,16 +145,21 @@ class InterviewOrchestrator:
                 if resolved:
                     newly_extracted.extend(resolved)
                 if result_code == "rejected":
-                    # Extract explicit corrections provided in the rejection message (e.g. "No, I smoke socially")
-                    try:
-                        corr_update = await self.extractor.extract_from_text(
-                            user_input=cleaned_input,
-                            context_prompt=f"User rejected proposed value for '{msg}'. Extract any explicit correction or new value.",
-                        )
-                        corr_fields = self._merge_extracted_data(working_state, corr_update, ignore_confirmations=True)
-                        newly_extracted.extend(corr_fields)
-                    except Exception as e:
-                        logger.warning(f"Failed to extract explicit correction during rejection: {e}")
+                    # Check for simple affirmative/negative rejections vs text with explicit correction details
+                    simple_rejections = {"no", "nope", "nah", "incorrect", "false", "wrong"}
+                    if cleaned_input.lower().strip(" .!?,") in simple_rejections:
+                        logger.info("Simple rejection detected without explicit correction; skipping extra LLM extraction.")
+                    else:
+                        # Extract explicit corrections provided in the rejection message (e.g. "No, I smoke socially")
+                        try:
+                            corr_update = await self.extractor.extract_from_text(
+                                user_input=cleaned_input,
+                                context_prompt=f"User rejected proposed value for '{msg}'. Extract any explicit correction or new value.",
+                            )
+                            corr_fields = self._merge_extracted_data(working_state, corr_update, ignore_confirmations=True)
+                            newly_extracted.extend(corr_fields)
+                        except Exception as e:
+                            logger.warning(f"Failed to extract explicit correction during rejection: {e}")
             elif result_code == "ambiguous":
                 # User gave ambiguous/qualified response to confirmation prompt
                 # Do NOT change profile, ask for explicit confirmation again
@@ -239,6 +244,35 @@ class InterviewOrchestrator:
             newly_extracted=list(set(newly_extracted)),
             is_ready=(working_state.status == InterviewStatus.READY_FOR_REVIEW),
         )
+
+    async def process_turn_stream(
+        self, session_id: str, user_message: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Processes a conversational turn asynchronously, yielding token content deltas
+        and concluding with a final turn metadata event.
+        """
+        turn_result = await self.process_turn(session_id=session_id, user_message=user_message)
+        assistant_message = turn_result.assistant_message
+
+        # Stream assistant_message tokens chunk by chunk
+        words = assistant_message.split(" ")
+        for i, word in enumerate(words):
+            delta = word if i == len(words) - 1 else word + " "
+            yield {"type": "content_delta", "delta": delta}
+
+        final_data = {
+            "session_id": turn_result.session_id,
+            "assistant_message": turn_result.assistant_message,
+            "interview_status": turn_result.interview_status.value if hasattr(turn_result.interview_status, 'value') else turn_result.interview_status,
+            "current_topic": turn_result.current_topic.value if hasattr(turn_result.current_topic, 'value') else turn_result.current_topic,
+            "progress": turn_result.progress.model_dump() if hasattr(turn_result.progress, 'model_dump') else turn_result.progress,
+            "newly_extracted_fields": turn_result.newly_extracted_fields,
+            "pending_confirmations": [c.model_dump() if hasattr(c, 'model_dump') else c for c in turn_result.pending_confirmations],
+            "missing_essential_fields": turn_result.missing_essential_fields,
+            "is_ready_for_review": turn_result.is_ready_for_review,
+        }
+        yield {"type": "turn_complete", "data": final_data}
 
     def confirm_draft_profile(self, session_id: str, mark_completed: bool = True) -> UserProfile:
         """
