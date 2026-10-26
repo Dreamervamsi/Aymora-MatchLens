@@ -80,6 +80,10 @@ export const interviewService = {
                 if (onDelta) onDelta(event.delta);
               } else if (event.type === 'turn_complete') {
                 if (onComplete) onComplete(event.data);
+              } else if (event.type === 'error') {
+                const err = new Error(event.error || 'Streaming processing error');
+                if (onError) onError(err);
+                else throw err;
               }
             } catch (pErr) {
               console.warn('Error parsing SSE event data:', pErr, dataStr);
@@ -97,6 +101,10 @@ export const interviewService = {
               if (onDelta) onDelta(event.delta);
             } else if (event.type === 'turn_complete') {
               if (onComplete) onComplete(event.data);
+            } else if (event.type === 'error') {
+              const err = new Error(event.error || 'Streaming processing error');
+              if (onError) onError(err);
+              else throw err;
             }
           } catch (pErr) {
             console.warn('Error parsing final SSE event data:', pErr, dataStr);

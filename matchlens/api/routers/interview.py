@@ -93,27 +93,30 @@ async def process_interview_turn_stream(
     """
     Processes a conversational turn and streams assistant response tokens to frontend via Server-Sent Events (SSE).
     """
-    try:
-        async def event_generator():
+    async def event_generator():
+        try:
             async for event in orchestrator.process_turn_stream(
                 session_id=session_id,
                 user_message=payload.user_message,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            logger.error(f"Streaming processing error in session {session_id}: {e}", exc_info=True)
+            error_payload = {
+                "type": "error",
+                "error": str(e) or "An error occurred during response streaming.",
+            }
+            yield f"data: {json.dumps(error_payload)}\n\n"
 
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-    except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND if "not found" in str(ve).lower() else status.HTTP_400_BAD_REQUEST, detail=str(ve))
-    except Exception as e:
-        logger.error(f"Error in interview stream endpoint: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Streaming processing error.")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{session_id}", response_model=InterviewStateResponse)
