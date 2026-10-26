@@ -11,3 +11,7 @@ services:
         value: "llama-3.1-8b-instant"
       - key: GROQ_TIMEOUT_SECONDS
         value: "60.0"
+      - key: MATCHLENS_CORS_ORIGINS
+        value: "https://aymora-match-lens.vercel.app,http://localhost:5173,http://localhost:3000"
+      - key: MATCHLENS_CORS_ORIGIN_REGEX
+        value: "https://.*\\.vercel\\.app|https://.*\\.app\\.github\\.dev|http://localhost:\\d+"

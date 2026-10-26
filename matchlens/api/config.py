@@ -16,6 +16,7 @@ class APISettings(BaseModel):
             origin.strip()
             for origin in os.getenv(
                 "MATCHLENS_CORS_ORIGINS",
+                "https://aymora-match-lens.vercel.app,"
                 "https://grim-spooky-skull-5wjgxvggqppfwr4-3000.app.github.dev,"
                 "https://grim-spooky-skull-5wjgxvggqppfwr4-8000.app.github.dev,"
                 "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000",
@@ -26,7 +27,7 @@ class APISettings(BaseModel):
     cors_origin_regex: str = Field(
         default_factory=lambda: os.getenv(
             "MATCHLENS_CORS_ORIGIN_REGEX",
-            r"https://.*\.app\.github\.dev|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+            r"https://.*\.vercel\.app|https://.*\.app\.github\.dev|http://localhost:\d+|http://127\.0\.0\.1:\d+",
         )
     )
     cors_allow_credentials: bool = True
